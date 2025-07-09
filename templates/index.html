@@ -272,17 +272,20 @@
         // --- Event Listeners for Controls ---
         autoBtn.addEventListener('click', () => {
             const isActive = autoBtn.classList.toggle('active');
+            console.log(`Setting auto mode to: ${isActive}`);
             socket.emit('set_mode', { auto: isActive });
         });
 
         leftBtn.addEventListener('click', () => {
             if (!autoBtn.classList.contains('active')) {
+                console.log('Manual rotate LEFT command sent.');
                 socket.emit('manual_rotate', { direction: 'left' });
             }
         });
 
         rightBtn.addEventListener('click', () => {
             if (!autoBtn.classList.contains('active')) {
+                console.log('Manual rotate RIGHT command sent.');
                 socket.emit('manual_rotate', { direction: 'right' });
             }
         });

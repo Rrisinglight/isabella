@@ -61,14 +61,17 @@ class HardwareManager:
     def set_servo_position(self, position):
         # Clamp position to limits
         pos = max(SERVO_MIN_POS, min(SERVO_MAX_POS, int(position)))
+        print(f"HARDWARE_DEBUG: Attempting to move servo to position {pos}")
         if self.is_ready():
             try:
                 self.servo.WritePosition(SERVO_ID, pos)
-                print(f"Servo moved to position: {pos}")
+                # This delay is crucial to give the servo time to execute
+                time.sleep(0.05)
+                print(f"HARDWARE_DEBUG: Command WritePosition(id={SERVO_ID}, pos={pos}) sent successfully.")
             except Exception as e:
-                print(f"Error writing servo position: {e}")
+                print(f"HARDWARE_ERROR: Failed to write servo position: {e}")
         else:
-             print(f"SIMULATED: Servo moved to position: {pos}")
+             print(f"HARDWARE_SIM: Servo moved to position: {pos}")
 
     def startup_sweep(self, app_state, socketio):
         """Performs an initial sweep from left to right to find a signal."""

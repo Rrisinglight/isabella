@@ -129,6 +129,8 @@ def handle_set_mode(data):
 
 @socketio.on('manual_rotate')
 def handle_manual_rotate(data):
+    direction = data.get('direction')
+    print(f"Received 'manual_rotate' event for direction: {direction}")
     with app_state["lock"]:
         if app_state["auto_mode"]:
             app_state["auto_mode"] = False
@@ -137,7 +139,6 @@ def handle_manual_rotate(data):
         
         app_state["is_sweeping"] = False
 
-        direction = data.get('direction')
         new_position = app_state["servo_position"]
         if direction == 'left':
             new_position -= MANUAL_SERVO_STEP
