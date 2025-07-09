@@ -35,7 +35,7 @@ class HardwareManager:
 
             try:
                 # Initialize Servo
-                self.servo = ST3215(SERVO_DEVICE, servo_id=SERVO_ID, series=1)
+                self.servo = ST3215(SERVO_DEVICE)
                 print("Servo Initialized.")
             except Exception as e:
                 print(f"Error initializing Servo: {e}")
@@ -63,7 +63,7 @@ class HardwareManager:
         pos = max(SERVO_MIN_POS, min(SERVO_MAX_POS, int(position)))
         if self.is_ready():
             try:
-                self.servo.WritePosition(pos)
+                self.servo.WritePosition(SERVO_ID, pos)
                 print(f"Servo moved to position: {pos}")
             except Exception as e:
                 print(f"Error writing servo position: {e}")
