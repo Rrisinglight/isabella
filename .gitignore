@@ -1,0 +1,13 @@
+# Python virtual environment
+vid/
+vtx/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Application state files
+*.flag
+
+# IDE / Editor specific
+.vscode/ 

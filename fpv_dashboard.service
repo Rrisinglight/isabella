@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/video
-ExecStart=/home/pi/video/vtx/pyvtx/bin/python /home/pi/video/main.py
+ExecStart=/home/pi/video/vid/bin/python /home/pi/video/main.py
 Restart=on-failure
 
 [Install]
