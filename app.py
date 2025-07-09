@@ -38,88 +38,103 @@ class FPVInterface:
         
     def init_files(self):
         """Инициализация файлов"""
-        print(f"[DEBUG] Инициализация файлов...")
-        
         # Создаем файл команд если его нет
         if not os.path.exists(self.command_file):
             with open(self.command_file, 'w') as f:
                 f.write("")
-            print(f"[DEBUG] Создан файл команд: {self.command_file}")
         
         # Создаем файл статуса если его нет
         if not os.path.exists(self.status_file):
             with open(self.status_file, 'w') as f:
                 json.dump({}, f)
-            print(f"[DEBUG] Создан файл статуса: {self.status_file}")
-            
-        print(f"[DEBUG] Файлы инициализированы")
         
     def send_command(self, command):
-        """Отправляет команду в antenna_tracker"""
+        """Отправляет команду в antenna_tracker с защитой"""
         try:
-            print(f"[DEBUG] Отправка команды: {command}")
+            # Проверяем валидность команды
+            valid_commands = ['left', 'right', 'auto', 'manual', 'scan']
+            if command not in valid_commands:
+                print(f"[ERROR] Недопустимая команда: {command}")
+                return False
+            
+            # Защита от переполнения файла команд
+            if os.path.exists(self.command_file):
+                file_size = os.path.getsize(self.command_file)
+                if file_size > 1000:  # Больше 1KB - что-то не так
+                    print(f"[WARNING] Файл команд слишком большой: {file_size} байт")
+                    # Очищаем файл
+                    with open(self.command_file, 'w') as f:
+                        f.write("")
+            
+            # Записываем команду
             with open(self.command_file, 'w') as f:
                 f.write(command)
-            print(f"[DEBUG] Команда {command} записана в {self.command_file}")
+            
+            # Проверяем что команда записалась
+            with open(self.command_file, 'r') as f:
+                written_command = f.read().strip()
+                if written_command != command:
+                    print(f"[ERROR] Команда записалась неправильно: {written_command} != {command}")
+                    return False
+            
             return True
+            
         except Exception as e:
-            print(f"[ERROR] Ошибка отправки команды: {e}")
+            print(f"[ERROR] Ошибка отправки команды '{command}': {e}")
             return False
     
     def read_status(self):
         """Читает статус из antenna_tracker"""
         try:
-            if os.path.exists(self.status_file):
-                file_size = os.path.getsize(self.status_file)
-                if file_size == 0:
-                    print(f"[DEBUG] Файл статуса {self.status_file} пуст")
-                    return None
-                    
+            if os.path.exists(self.status_file) and os.path.getsize(self.status_file) > 0:
                 with open(self.status_file, 'r') as f:
                     content = f.read().strip()
-                    if not content:
-                        print(f"[DEBUG] Файл статуса содержит только пробелы")
-                        return None
-                        
-                    data = json.loads(content)
-                    print(f"[DEBUG] Статус прочитан: RSSI_A={data.get('rssi_a', 'N/A')}, RSSI_B={data.get('rssi_b', 'N/A')}, Angle={data.get('angle', 'N/A')}, Mode={data.get('mode', 'N/A')}")
-                    return data
-            else:
-                print(f"[DEBUG] Файл статуса {self.status_file} не существует")
-                return None
-        except json.JSONDecodeError as e:
-            print(f"[ERROR] Ошибка парсинга JSON: {e}")
-            # Попробуем прочитать содержимое файла для отладки
-            try:
-                with open(self.status_file, 'r') as f:
-                    content = f.read()
-                    print(f"[DEBUG] Содержимое файла статуса: '{content}'")
-            except:
-                pass
-            return None
+                    if content:
+                        return json.loads(content)
+        except json.JSONDecodeError:
+            pass  # Игнорируем ошибки парсинга
         except Exception as e:
             print(f"[ERROR] Ошибка чтения статуса: {e}")
-            return None
+        return None
     
     def start_angle_scan(self):
-        """Запускает сканирование углов"""
-        if self.scan_in_progress:
-            return False
+        """Запускает сканирование углов с защитой"""
+        try:
+            if self.scan_in_progress:
+                print("[WARNING] Попытка запуска сканирования когда оно уже активно")
+                return False
             
-        self.scan_in_progress = True
-        self.scan_data = []
-        
-        # Запускаем сканирование в отдельном потоке
-        scan_thread = threading.Thread(target=self.perform_angle_scan)
-        scan_thread.daemon = True
-        scan_thread.start()
-        
-        return True
+            # Проверяем что antenna_tracker работает
+            if not self.read_status():
+                print("[WARNING] Нет данных от antenna_tracker, сканирование может не работать")
+                # Все равно пытаемся запустить для тестирования
+            
+            self.scan_in_progress = True
+            self.scan_data = []
+            
+            # Запускаем сканирование в отдельном потоке
+            scan_thread = threading.Thread(target=self.perform_angle_scan_safe)
+            scan_thread.daemon = True
+            scan_thread.start()
+            
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка запуска сканирования: {e}")
+            self.scan_in_progress = False
+            return False
+    
+    def perform_angle_scan_safe(self):
+        """Безопасное выполнение сканирования с обработкой ошибок"""
+        try:
+            self.perform_angle_scan()
+        except Exception as e:
+            print(f"[ERROR] Ошибка в процессе сканирования: {e}")
+            self.scan_in_progress = False
+            socketio.emit('scan_complete', {'data': [], 'error': str(e)})
     
     def perform_angle_scan(self):
         """Выполняет сканирование по углам"""
-        print("Начинаем angle scan...")
-        
         # Сначала отправляем команду сканирования
         self.send_command("scan")
         time.sleep(0.5)
@@ -167,22 +182,17 @@ class FPVInterface:
         
         self.scan_in_progress = False
         socketio.emit('scan_complete', {'data': self.scan_data})
-        print("Angle scan завершен")
     
     def read_data_loop(self):
         """Основной цикл чтения данных"""
-        print("[DEBUG] Запуск цикла чтения данных...")
-        last_status_time = 0
         no_data_counter = 0
         
         while self.running:
             try:
                 status = self.read_status()
-                current_time = time.time()
                 
                 if status:
                     no_data_counter = 0
-                    last_status_time = current_time
                     
                     # Конвертируем позицию сервопривода в угол (0-360)
                     position = status.get('angle', 2047)
@@ -198,21 +208,14 @@ class FPVInterface:
                     
                     # Отправляем данные клиентам
                     socketio.emit('telemetry', telemetry_data)
-                    
-                    if no_data_counter % 25 == 0:  # Каждые 5 секунд
-                        print(f"[DEBUG] Отправлена телеметрия: {telemetry_data}")
                 else:
                     no_data_counter += 1
                     
-                    # Если долго нет данных от antenna_tracker, создаем фиктивные
-                    if current_time - last_status_time > 5:  # 5 секунд без данных
-                        if no_data_counter % 25 == 0:  # Каждые 5 секунд
-                            print(f"[WARNING] Нет данных от antenna_tracker уже {current_time - last_status_time:.1f} сек. Отправляем фиктивные данные.")
-                        
-                        # Фиктивные данные для тестирования интерфейса
+                    # Отправляем фиктивные данные для тестирования интерфейса
+                    if no_data_counter > 10:  # После 2 секунд без данных
                         fake_data = {
-                            'rssi_a': 1500 + no_data_counter % 100,
-                            'rssi_b': 1600 + no_data_counter % 100,
+                            'rssi_a': 1500 + (no_data_counter % 100),
+                            'rssi_b': 1600 + (no_data_counter % 100),
                             'angle': (no_data_counter * 2) % 360,
                             'auto_mode': False,
                             'mode': 'manual'
@@ -241,59 +244,107 @@ def live_stream():
 @socketio.on('connect')
 def handle_connect():
     """Обработка подключения клиента"""
-    print('[DEBUG] Клиент подключился')
     emit('connected', {'status': 'connected'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Обработка отключения клиента"""
-    print('[DEBUG] Клиент отключился')
+    pass
 
 @socketio.on('set_mode')
 def handle_set_mode(data):
     """Обработка переключения режима Auto"""
-    auto_mode = data.get('auto', False)
-    print(f"[DEBUG] Получена команда set_mode: auto={auto_mode}")
-    
-    if auto_mode:
-        success = fpv_interface.send_command('auto')
-    else:
-        success = fpv_interface.send_command('manual')
-    
-    print(f"[DEBUG] Результат команды set_mode: success={success}")
-    emit('mode_update', {'auto_mode': auto_mode, 'success': success})
+    try:
+        auto_mode = bool(data.get('auto', False))
+        
+        # Защита от частых переключений
+        current_time = time.time()
+        if not hasattr(handle_set_mode, 'last_call'):
+            handle_set_mode.last_call = 0
+        
+        if current_time - handle_set_mode.last_call < 0.5:  # 500ms защита
+            emit('mode_update', {'auto_mode': auto_mode, 'success': False, 'error': 'Too frequent'})
+            return
+        
+        handle_set_mode.last_call = current_time
+        
+        if auto_mode:
+            success = fpv_interface.send_command('auto')
+        else:
+            success = fpv_interface.send_command('manual')
+        
+        emit('mode_update', {'auto_mode': auto_mode, 'success': success})
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в set_mode: {e}")
+        emit('mode_update', {'auto_mode': False, 'success': False, 'error': str(e)})
 
 @socketio.on('manual_rotate')
 def handle_manual_rotate(data):
     """Обработка ручного поворота"""
-    direction = data.get('direction')
-    print(f"[DEBUG] Получена команда manual_rotate: direction={direction}")
-    
-    if direction == 'left':
-        success = fpv_interface.send_command('left')
-    elif direction == 'right':
-        success = fpv_interface.send_command('right')
-    else:
-        success = False
-        print(f"[ERROR] Неизвестное направление: {direction}")
-    
-    print(f"[DEBUG] Результат команды manual_rotate: success={success}")
-    emit('rotate_response', {'direction': direction, 'success': success})
+    try:
+        direction = str(data.get('direction', '')).lower()
+        
+        # Защита от частых команд
+        current_time = time.time()
+        if not hasattr(handle_manual_rotate, 'last_call'):
+            handle_manual_rotate.last_call = 0
+        
+        if current_time - handle_manual_rotate.last_call < 0.2:  # 200ms защита
+            emit('rotate_response', {'direction': direction, 'success': False, 'error': 'Too frequent'})
+            return
+            
+        handle_manual_rotate.last_call = current_time
+        
+        # Проверяем валидное направление
+        if direction not in ['left', 'right']:
+            emit('rotate_response', {'direction': direction, 'success': False, 'error': 'Invalid direction'})
+            return
+        
+        success = fpv_interface.send_command(direction)
+        emit('rotate_response', {'direction': direction, 'success': success})
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в manual_rotate: {e}")
+        emit('rotate_response', {'direction': 'unknown', 'success': False, 'error': str(e)})
 
 @socketio.on('start_angle_scan')
 def handle_angle_scan():
     """Обработка запуска angle scan"""
-    print("[DEBUG] Получена команда start_angle_scan")
-    success = fpv_interface.start_angle_scan()
-    print(f"[DEBUG] Результат команды start_angle_scan: success={success}")
-    emit('scan_started', {'success': success})
+    try:
+        # Защита от частых запросов сканирования
+        current_time = time.time()
+        if not hasattr(handle_angle_scan, 'last_call'):
+            handle_angle_scan.last_call = 0
+        
+        if current_time - handle_angle_scan.last_call < 2.0:  # 2 секунды защита
+            emit('scan_started', {'success': False, 'error': 'Scan cooldown'})
+            return
+            
+        handle_angle_scan.last_call = current_time
+        
+        # Проверяем что сканирование не активно
+        if fpv_interface.scan_in_progress:
+            emit('scan_started', {'success': False, 'error': 'Scan already active'})
+            return
+        
+        success = fpv_interface.start_angle_scan()
+        emit('scan_started', {'success': success})
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в start_angle_scan: {e}")
+        emit('scan_started', {'success': False, 'error': str(e)})
 
 @socketio.on('stop_angle_scan')
 def handle_stop_scan():
     """Остановка сканирования"""
-    print("[DEBUG] Получена команда stop_angle_scan")
-    fpv_interface.scan_in_progress = False
-    emit('scan_stopped', {'success': True})
+    try:
+        fpv_interface.scan_in_progress = False
+        emit('scan_stopped', {'success': True})
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в stop_angle_scan: {e}")
+        emit('scan_stopped', {'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     print("Запуск FPV Interface сервера...")
