@@ -84,13 +84,13 @@ class AntennaTracker:
     def read_rssi(self):
         """Читает RSSI с обеих антенн и применяет фильтр"""
         try:
-            # Читаем сырые значения
-            right_raw = self.ads.readADC(0)  # Правая антенна
-            left_raw = self.ads.readADC(1)   # Левая антенна
+            # Читаем сырые значения (меняем местами левую и правую)
+            left_raw = self.ads.readADC(0)   # Левая антенна теперь adc0
+            right_raw = self.ads.readADC(1)  # Правая антенна теперь adc1
             
             # Добавляем в буферы
-            self.right_rssi_buffer.append(right_raw)
             self.left_rssi_buffer.append(left_raw)
+            self.right_rssi_buffer.append(right_raw)
             
             # Вычисляем скользящее среднее
             left_rssi = sum(self.left_rssi_buffer) / len(self.left_rssi_buffer)
@@ -117,42 +117,67 @@ class AntennaTracker:
                     print(f"Ошибка перемещения сервопривода: {e}")
     
     def scan_mode(self):
-        """Режим сканирования - поиск дрона"""
-        print("Начинаем сканирование...")
-        scan_step = 30  # Шаг сканирования
-        scan_delay = 0.1  # Задержка между шагами
+        """Режим сканирования - поиск оптимальной позиции"""
+        print("Начинаем быстрое сканирование...")
         
-        best_position = self.center_pos
-        min_difference = float('inf')
+        scan_data = []  # Список для хранения результатов: [(position, left_rssi, right_rssi, difference), ...]
         
-        # Сканируем от левого края к правому
+        # Сканируем от левого края к правому с шагом 22 единицы (2 градуса)
         current_pos = self.left_limit
         while current_pos <= self.right_limit and self.current_mode == self.MODE_SCAN:
+            # Перемещаем сервопривод
             self.move_servo(current_pos)
-            time.sleep(scan_delay)
+            time.sleep(0.1)  # Быстрее - ждем только 100мс
             
-            # Читаем RSSI
+            # Читаем RSSI с обеих антенн
             left_rssi, right_rssi = self.read_rssi()
+            
+            # Вычисляем разность между антеннами
             difference = abs(left_rssi - right_rssi)
-            signal_strength = left_rssi + right_rssi
             
-            # Ищем позицию с минимальной разницей и достаточным сигналом
-            if difference < min_difference and signal_strength > 100:  # Порог сигнала
-                min_difference = difference
-                best_position = current_pos
-                print(f"Найден сигнал на позиции {current_pos}: L={left_rssi:.1f}, R={right_rssi:.1f}, diff={difference:.1f}")
+            # Сохраняем результат
+            scan_data.append((current_pos, left_rssi, right_rssi, difference))
             
-            current_pos += scan_step
+            print(f"Позиция {current_pos}: L={left_rssi:.0f}, R={right_rssi:.0f}, Разность={difference:.0f}")
             
-            # Проверяем команды
+            # Записываем статус для веб-интерфейса (для графика)
+            self.write_status(left_rssi, right_rssi)
+            
+            # Двигаемся на следующую позицию (2 градуса = 22 единицы)
+            current_pos += 22
+            
+            # Проверяем команды (для возможности остановки)
             self.check_commands()
         
-        # Переходим в лучшую найденную позицию
-        if self.current_mode == self.MODE_SCAN:
-            print(f"Сканирование завершено. Лучшая позиция: {best_position}")
-            self.move_servo(best_position)
-            self.current_mode = self.MODE_AUTO
-            print("Переход в автоматический режим")
+        if len(scan_data) < 3:
+            print("Недостаточно данных для анализа")
+            self.current_mode = self.MODE_MANUAL
+            return
+        
+        # Усредняем результаты по соседним точкам для устранения выбросов
+        smoothed_data = []
+        for i in range(len(scan_data)):
+            # Берем текущую точку и соседние (окно размером 3)
+            start_idx = max(0, i - 1)
+            end_idx = min(len(scan_data), i + 2)
+            
+            # Усредняем разности в окне
+            avg_difference = sum(data[3] for data in scan_data[start_idx:end_idx]) / (end_idx - start_idx)
+            
+            smoothed_data.append((scan_data[i][0], avg_difference))  # (position, smoothed_difference)
+        
+        # Находим позицию с минимальной усредненной разностью
+        best_position, min_difference = min(smoothed_data, key=lambda x: x[1])
+        
+        print(f"Найдена оптимальная позиция: {best_position} (разность: {min_difference:.0f})")
+        
+        # Перемещаемся в оптимальную позицию
+        self.move_servo(best_position)
+        time.sleep(0.5)
+        
+        # Переходим в автоматический режим
+        self.current_mode = self.MODE_AUTO
+        print("Сканирование завершено, переход в автоматический режим")
     
     def auto_mode(self):
         """Автоматический режим слежения"""
@@ -165,8 +190,8 @@ class AntennaTracker:
         if abs(difference) < self.rssi_threshold:
             return
         
-        # Определяем направление движения
-        move_step = 5  # Небольшой шаг для плавного слежения
+        # Определяем направление движения - быстрый шаг 22 единицы (2 градуса)
+        move_step = 22  # Увеличен шаг для быстрого слежения
         if difference > 0:  # Левая антенна сильнее - поворачиваем влево
             new_position = self.position - move_step
         else:  # Правая антенна сильнее - поворачиваем вправо

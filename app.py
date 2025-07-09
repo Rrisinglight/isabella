@@ -98,90 +98,87 @@ class FPVInterface:
         return None
     
     def start_angle_scan(self):
-        """Запускает сканирование углов с защитой"""
+        """Запускает простое сканирование углов"""
         try:
             if self.scan_in_progress:
                 print("[WARNING] Попытка запуска сканирования когда оно уже активно")
                 return False
             
-            # Проверяем что antenna_tracker работает
-            if not self.read_status():
-                print("[WARNING] Нет данных от antenna_tracker, сканирование может не работать")
-                # Все равно пытаемся запустить для тестирования
-            
             self.scan_in_progress = True
-            self.scan_data = []
             
-            # Запускаем сканирование в отдельном потоке
-            scan_thread = threading.Thread(target=self.perform_angle_scan_safe)
-            scan_thread.daemon = True
-            scan_thread.start()
+            # Просто отправляем команду сканирования в antenna_tracker
+            success = self.send_command('scan')
             
-            return True
+            if success:
+                # Запускаем мониторинг сканирования в отдельном потоке
+                monitor_thread = threading.Thread(target=self.monitor_scan)
+                monitor_thread.daemon = True
+                monitor_thread.start()
+                return True
+            else:
+                self.scan_in_progress = False
+                return False
             
         except Exception as e:
             print(f"[ERROR] Ошибка запуска сканирования: {e}")
             self.scan_in_progress = False
             return False
     
-    def perform_angle_scan_safe(self):
-        """Безопасное выполнение сканирования с обработкой ошибок"""
+    def monitor_scan(self):
+        """Мониторит процесс сканирования и отправляет данные для графика"""
         try:
-            self.perform_angle_scan()
-        except Exception as e:
-            print(f"[ERROR] Ошибка в процессе сканирования: {e}")
+            # Ждем пока antenna_tracker выполняет сканирование
+            scan_start_time = time.time()
+            max_scan_time = 60  # Максимум 60 секунд на сканирование
+            last_position = None
+            
+            while self.scan_in_progress and (time.time() - scan_start_time) < max_scan_time:
+                status = self.read_status()
+                
+                if status:
+                    current_mode = status.get('mode', 'manual')
+                    current_position = status.get('angle', 2047)
+                    
+                    # Если режим изменился с 'scan' на что-то другое, значит сканирование завершено
+                    if current_mode != 'scan':
+                        break
+                    
+                    # Отправляем данные для графика во время сканирования
+                    if current_position != last_position:
+                        # Конвертируем позицию в угол (0-146 градусов)
+                        angle = ((current_position - 1100) / 11.0)
+                        angle = max(0, min(146, angle))
+                        
+                        # Отправляем сумму RSSI для графика
+                        total_rssi = status.get('rssi_a', 0) + status.get('rssi_b', 0)
+                        
+                        socketio.emit('scan_data_point', {
+                            'angle': angle,
+                            'rssi': total_rssi
+                        })
+                        
+                        last_position = current_position
+                
+                time.sleep(0.2)  # Проверяем каждые 200мс
+            
+            # Сканирование завершено
             self.scan_in_progress = False
-            socketio.emit('scan_complete', {'data': [], 'error': str(e)})
-    
-    def perform_angle_scan(self):
-        """Выполняет сканирование по углам"""
-        # Сначала отправляем команду сканирования
-        self.send_command("scan")
-        time.sleep(0.5)
-        
-        # Ждем завершения основного сканирования
-        time.sleep(6)
-        
-        # Теперь делаем детальное сканирование для графика
-        start_pos = 1100  # Левый предел
-        end_pos = 2700    # Правый предел
-        step = 50         # Шаг сканирования
-        
-        current_pos = start_pos
-        while current_pos <= end_pos and self.scan_in_progress:
-            # Вычисляем угол (0-360 градусов)
-            angle = ((current_pos - start_pos) / (end_pos - start_pos)) * 360
             
-            # Читаем текущие RSSI значения
-            status = self.read_status()
-            if status:
-                # Используем сумму RSSI как общую силу сигнала
-                total_rssi = status.get('rssi_a', 0) + status.get('rssi_b', 0)
-                
-                self.scan_data.append({
-                    'angle': angle,
-                    'rssi': total_rssi,
-                    'position': current_pos
-                })
-                
-                # Отправляем данные в real-time
-                socketio.emit('scan_data_point', {
-                    'angle': angle,
-                    'rssi': total_rssi
-                })
+            # Отправляем сигнал о завершении
+            socketio.emit('scan_complete', {
+                'success': True,
+                'message': 'Сканирование завершено'
+            })
             
-            current_pos += step
-            time.sleep(0.3)  # Пауза между измерениями
-        
-        # Сохраняем данные сканирования
-        try:
-            with open(self.scan_data_file, 'w') as f:
-                json.dump(self.scan_data, f)
-        except:
-            pass
-        
-        self.scan_in_progress = False
-        socketio.emit('scan_complete', {'data': self.scan_data})
+            print("Сканирование завершено")
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка мониторинга сканирования: {e}")
+            self.scan_in_progress = False
+            socketio.emit('scan_complete', {
+                'success': False,
+                'error': str(e)
+            })
     
     def read_data_loop(self):
         """Основной цикл чтения данных"""
@@ -194,9 +191,11 @@ class FPVInterface:
                 if status:
                     no_data_counter = 0
                     
-                    # Конвертируем позицию сервопривода в угол (0-360)
+                    # Конвертируем позицию сервопривода в угол (0-146 градусов)
+                    # 11 единиц = 1 градус, диапазон 1100-2700 (1600 единиц = ~146 градусов)
                     position = status.get('angle', 2047)
-                    angle = ((position - 1100) / (2700 - 1100)) * 360
+                    angle = ((position - 1100) / 11.0)  # Прямое преобразование в градусы
+                    angle = max(0, min(146, angle))  # Ограничиваем диапазон
                     
                     telemetry_data = {
                         'rssi_a': status.get('rssi_a', 0),
@@ -214,9 +213,9 @@ class FPVInterface:
                     # Отправляем фиктивные данные для тестирования интерфейса
                     if no_data_counter > 10:  # После 2 секунд без данных
                         fake_data = {
-                            'rssi_a': 1500 + (no_data_counter % 100),
-                            'rssi_b': 1600 + (no_data_counter % 100),
-                            'angle': (no_data_counter * 2) % 360,
+                            'rssi_a': 4500 + (no_data_counter % 500),  # Диапазон 4500-5000
+                            'rssi_b': 5200 + (no_data_counter % 500),  # Диапазон 5200-5700
+                            'angle': (no_data_counter * 2) % 146,  # 0-146 градусов
                             'auto_mode': False,
                             'mode': 'manual'
                         }

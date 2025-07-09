@@ -120,6 +120,7 @@ class FPVInterface {
                         title: { display: true, text: 'RSSI', color: '#e0e0e0' },
                         ticks: { color: '#e0e0e0' },
                         grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        // Убираем фиксированные min/max - пусть автоматически масштабируется
                     }
                 }
             }
