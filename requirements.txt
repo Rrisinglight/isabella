@@ -1,0 +1,7 @@
+Flask
+Flask-SocketIO
+requests
+gevent-websocket
+pyserial
+smbus2
+RPi.GPIO 

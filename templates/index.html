@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FPV Pilot Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+        .liquid-glass {
+            background: rgba(30, 30, 30, 0.5);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .neon-text {
+            color: #fff;
+            text-shadow: 0 0 5px #00aaff, 0 0 10px #00aaff, 0 0 15px #00aaff;
+        }
+        .btn {
+            background-color: rgba(0, 170, 255, 0.15);
+            border: 1px solid #00aaff;
+            color: #00aaff;
+            transition: all 0.3s ease;
+            border-radius: 9999px;
+            padding: 8px 16px;
+            font-weight: 500;
+        }
+        .btn:hover {
+            background-color: rgba(0, 170, 255, 0.3);
+            box-shadow: 0 0 15px #00aaff;
+        }
+        .btn.active {
+            background-color: rgba(0, 170, 255, 0.4);
+            box-shadow: 0 0 15px #00aaff;
+            color: #fff;
+        }
+        .icon-btn {
+            background: rgba(40, 40, 40, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            padding: 8px;
+            color: #e0e0e0;
+        }
+        .icon-btn:hover {
+            background: rgba(60, 60, 60, 0.8);
+        }
+        .disabled-btn {
+            background-color: rgba(60, 60, 60, 0.4);
+            border-color: rgba(255, 255, 255, 0.1);
+            color: #888;
+            cursor: not-allowed;
+        }
+        .disabled-btn:hover {
+            box-shadow: none;
+        }
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            bottom: 120%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(10px);
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1;
+            border-radius: 10px;
+            padding: 5px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .dropdown-content a {
+            color: #e0e0e0;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            text-align: center;
+        }
+        .dropdown-content a:hover {
+             background-color: rgba(0, 170, 255, 0.2);
+        }
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-[1920px] mx-auto">
+
+    <!-- Left Column -->
+    <div class="lg:col-span-2 space-y-8">
+        <!-- Video Stream -->
+        <div id="video-container" class="relative liquid-glass overflow-hidden aspect-video">
+            <video id="videoElement" class="w-full h-full bg-black"></video>
+            <div class="absolute inset-0 flex items-center justify-center p-4">
+                <div class="absolute inset-x-0 bottom-4 flex justify-center items-center space-x-2">
+                    <button id="left-btn" class="icon-btn p-3"><span class="material-icons">chevron_left</span></button>
+                    <button class="btn active flex items-center space-x-2" id="auto-btn"><span class="material-icons text-sm">auto_awesome</span><span>Auto</span></button>
+                    <div class="dropdown">
+                        <button class="btn flex items-center space-x-2"><span class="material-icons text-sm">signal_cellular_alt</span><span>Frequency</span></button>
+                        <div class="dropdown-content">
+                            <a href="#">5865 MHz (B8)</a>
+                            <a href="#">5845 MHz (A2)</a>
+                            <a href="#">5705 MHz (E1)</a>
+                        </div>
+                    </div>
+                    <button id="right-btn" class="icon-btn p-3"><span class="material-icons">chevron_right</span></button>
+                </div>
+                <button id="fullscreenBtn" class="icon-btn p-3 absolute bottom-4 right-4"><span class="material-icons">fullscreen</span></button>
+            </div>
+        </div>
+
+        <!-- Telemetry -->
+        <div class="liquid-glass p-6">
+            <h2 class="text-2xl font-bold neon-text mb-6">Telemetry</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-lg font-semibold text-cyan-400 mb-4">Antenna</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div id="rssi-a" class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-cyan-400">signal_cellular_alt</span><div><p class="text-sm text-gray-400">RSSI A</p><p class="text-lg font-bold">-45 dBm</p></div></div>
+                        <div id="rssi-b" class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-cyan-400">signal_cellular_alt</span><div><p class="text-sm text-gray-400">RSSI B</p><p class="text-lg font-bold">-52 dBm</p></div></div>
+                        <div id="angle" class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-cyan-400">explore</span><div><p class="text-sm text-gray-400">Angle</p><p class="text-lg font-bold">120.5°</p></div></div>
+                        <div class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-cyan-400">my_location</span><div><p class="text-sm text-gray-400">GPS</p><p class="text-sm font-bold">40.71, -74.00</p></div></div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-purple-400 mb-4">Drone</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-purple-400">network_check</span><div><p class="text-sm text-gray-400">LQ</p><p class="text-lg font-bold">98%</p></div></div>
+                        <div class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-purple-400">speed</span><div><p class="text-sm text-gray-400">Speed</p><p class="text-lg font-bold">85 km/h</p></div></div>
+                        <div class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-purple-400">height</span><div><p class="text-sm text-gray-400">Altitude</p><p class="text-lg font-bold">150 m</p></div></div>
+                        <div class="liquid-glass p-4 rounded-lg flex items-center space-x-3"><span class="material-icons text-xl text-purple-400">pin_drop</span><div><p class="text-sm text-gray-400">GPS</p><p class="text-sm font-bold">40.73, -74.05</p></div></div>
+                        <div class="liquid-glass p-4 rounded-lg flex items-center space-x-3 col-span-2"><span class="material-icons text-xl text-purple-400">straighten</span><div><p class="text-sm text-gray-400">Distance</p><p class="text-lg font-bold">2.5 km</p></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column -->
+    <div class="space-y-8">
+        <!-- Map -->
+        <div class="liquid-glass aspect-square relative overflow-hidden flex items-center justify-center">
+            <img src="https://raw.githubusercontent.com/waliot/mapprint/master/screenshot.png" class="w-full h-full object-cover opacity-30" alt="Map">
+            <div class="absolute inset-0 flex items-center justify-center">
+                <div class="w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_15px_5px] shadow-cyan-400/50"></div>
+                <div class="absolute w-0.5 h-1/2 bg-gradient-to-t from-cyan-400 to-transparent" style="transform-origin: bottom; transform: rotate(-45deg) translateY(-50%);"></div>
+                <div class="absolute" style="top: 25%; left: 30%; transform: rotate(0deg);">
+                    <span class="material-icons text-4xl text-red-500" style="text-shadow: 0 0 10px #f00;">airplanemode_active</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Frequency -->
+        <div class="liquid-glass p-6 text-center">
+             <h2 class="text-xl font-bold neon-text mb-2">Current Channel</h2>
+             <p class="text-3xl font-bold text-cyan-400">5865 <span class="text-xl">MHz</span></p>
+             <div class="flex justify-center space-x-4 text-gray-400 mt-2">
+                 <span>Band: B / CH: 6</span>
+                 <span>Power: 25mW</span>
+             </div>
+        </div>
+
+        <!-- Signal Histogram -->
+        <div class="liquid-glass p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold neon-text">Spectrum</h2>
+                <button class="btn disabled-btn text-sm">Start Scan</button>
+            </div>
+            <div class="h-40 flex items-end justify-between space-x-1 px-2 border-b border-gray-700">
+                <!-- Example bars -->
+                <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 25%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 30%"></div>
+                <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 50%"></div><div class="flex-1 bg-cyan-400 rounded-t-sm" style="height: 95%"></div>
+                <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 60%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 40%"></div>
+                <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 20%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 25%"></div>
+                <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 30%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 50%"></div>
+                <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 60%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 40%"></div>
+                 <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 20%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 25%"></div>
+                 <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 30%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 50%"></div>
+                 <div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 60%"></div><div class="flex-1 bg-cyan-400/50 rounded-t-sm" style="height: 40%"></div>
+            </div>
+             <div class="mt-4 text-center">
+                 <p class="text-sm text-gray-400">Top Frequencies:</p>
+                 <p class="text-base text-white">B6 5865MHz: <span class="font-bold">-42dBm</span></p>
+             </div>
+        </div>
+
+        <!-- Angle Scan -->
+        <div class="liquid-glass p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold neon-text">Angle Scan</h2>
+                <button class="btn disabled-btn text-sm">Auto-detect Angle</button>
+            </div>
+            <div class="h-40 relative">
+                 <svg class="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 400 100">
+                    <path d="M0,50 C50,10 150,90 200,50 S350,10 400,50" fill="none" stroke="#00aaff" stroke-width="2"></path>
+                </svg>
+                <div class="absolute bottom-0 w-full flex justify-between text-xs text-gray-400 px-2">
+                    <span>0°</span><span>90°</span><span>180°</span><span>270°</span><span>360°</span>
+                </div>
+            </div>
+            <div class="mt-4 text-center text-gray-300">
+                <p>Status: <span class="font-bold text-white">Idle</span></p>
+                <p>Max RSSI at: <span class="font-bold text-white">120°</span></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js/dist/mpegts.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const socket = io();
+
+        // --- DOM Elements ---
+        const rssiAElement = document.querySelector('#rssi-a p:last-child');
+        const rssiBElement = document.querySelector('#rssi-b p:last-child');
+        const angleElement = document.querySelector('#angle p:last-child');
+        const autoBtn = document.getElementById('auto-btn');
+        const leftBtn = document.getElementById('left-btn');
+        const rightBtn = document.getElementById('right-btn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const videoContainer = document.getElementById('video-container');
+
+        // --- SocketIO Listeners ---
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+        });
+
+        socket.on('telemetry', (data) => {
+            // Update telemetry values
+            // The raw ADC values are high, so we'll simulate a dBm conversion for display
+            rssiAElement.textContent = `${Math.round(100 - (data.rssi_a / 250))} dBm`;
+            rssiBElement.textContent = `${Math.round(100 - (data.rssi_b / 250))} dBm`;
+            angleElement.textContent = `${data.angle.toFixed(1)}°`;
+
+            // Update auto button state
+            if (data.auto_mode) {
+                autoBtn.classList.add('active');
+            } else {
+                autoBtn.classList.remove('active');
+            }
+        });
+        
+        socket.on('mode_update', (data) => {
+             if (data.auto_mode) {
+                autoBtn.classList.add('active');
+            } else {
+                autoBtn.classList.remove('active');
+            }
+        });
+
+
+        // --- Event Listeners for Controls ---
+        autoBtn.addEventListener('click', () => {
+            const isActive = autoBtn.classList.toggle('active');
+            socket.emit('set_mode', { auto: isActive });
+        });
+
+        leftBtn.addEventListener('click', () => {
+            if (!autoBtn.classList.contains('active')) {
+                socket.emit('manual_rotate', { direction: 'left' });
+            }
+        });
+
+        rightBtn.addEventListener('click', () => {
+            if (!autoBtn.classList.contains('active')) {
+                socket.emit('manual_rotate', { direction: 'right' });
+            }
+        });
+        
+        fullscreenBtn.addEventListener('click', () => {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                videoContainer.requestFullscreen().catch(err => {
+                    alert(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+                });
+            }
+        });
+
+
+        // --- Video Player Setup ---
+        if (mpegts.isSupported()) {
+            const videoElement = document.getElementById('videoElement');
+            const player = mpegts.createPlayer({
+                type: 'mse',
+                isLive: true,
+                url: '/live'
+            });
+            player.attachMediaElement(videoElement);
+            player.load();
+            videoElement.muted = true;
+            player.play();
+        }
+    });
+</script>
+
+</body>
+</html>
