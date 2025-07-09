@@ -27,20 +27,25 @@
                     <span class="material-icons">fullscreen</span>
                 </button>
             </div>
-            
-            <!-- Control Buttons in Video Block -->
-            <div class="antenna-controls">
-                <button id="leftBtn" class="antenna-btn manual-btn" type="button">
+        </div>
+    </div>
+
+    <!-- Antenna Controls Section -->
+    <div class="antenna-controls-section">
+        <div class="antenna-controls-panel liquid-glass">
+            <h3 class="section-title neon-text">Antenna Control</h3>
+            <div class="control-buttons">
+                <button id="leftBtn" class="control-btn manual-btn" type="button">
                     <span class="material-icons">chevron_left</span>
                     <span>Left</span>
                 </button>
                 
-                <button id="autoBtn" class="antenna-btn auto-btn" type="button">
+                <button id="autoBtn" class="control-btn auto-btn" type="button">
                     <span class="material-icons">auto_awesome</span>
                     <span>Auto</span>
                 </button>
                 
-                <button id="rightBtn" class="antenna-btn manual-btn" type="button">
+                <button id="rightBtn" class="control-btn manual-btn" type="button">
                     <span class="material-icons">chevron_right</span>
                     <span>Right</span>
                 </button>
@@ -154,10 +159,16 @@
         <div class="scan-section liquid-glass">
             <div class="scan-header">
                 <h3 class="section-title neon-text">Angle Scan</h3>
-                <button id="scanBtn" class="scan-btn" type="button">
-                    <span class="material-icons">search</span>
-                    <span>Start Scan</span>
-                </button>
+                <div class="scan-buttons">
+                    <button id="calibrateBtn" class="calibrate-btn" type="button">
+                        <span class="material-icons">tune</span>
+                        <span>Calibrate</span>
+                    </button>
+                    <button id="scanBtn" class="scan-btn" type="button">
+                        <span class="material-icons">search</span>
+                        <span>Start Scan</span>
+                    </button>
+                </div>
             </div>
             <div class="scan-chart">
                 <canvas id="scanChart"></canvas>

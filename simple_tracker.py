@@ -36,12 +36,18 @@ class AntennaTracker:
         self.MODE_AUTO = "auto" 
         self.MODE_SCAN = "scan"
         self.MODE_SCAN_COMPLETE = "scan_complete"  # Новое состояние для завершения
+        self.MODE_CALIBRATE = "calibrate"  # Режим калибровки
         self.current_mode = self.MODE_SCAN  # Начинаем со сканирования при запуске
         
         # Файлы для команд и статуса
         self.command_file = "/tmp/antenna_commands.txt"
         self.status_file = "/tmp/antenna_status.json"
         self.scan_results_file = "/tmp/antenna_scan_results.json"  # Новый файл для результатов
+        self.calibration_file = "/tmp/antenna_calibration.json"  # Файл для калибровки
+        
+        # Калибровка
+        self.rssi_offset = 0  # Поправочный коэффициент для выравнивания каналов
+        self.load_calibration()  # Загружаем калибровку при старте
         
         self.create_command_file()
         self.create_status_file()
@@ -118,6 +124,112 @@ class AntennaTracker:
         except Exception as e:
             print(f"Ошибка записи результатов сканирования: {e}")
     
+    def load_calibration(self):
+        """Загружает калибровку из файла"""
+        try:
+            if os.path.exists(self.calibration_file):
+                with open(self.calibration_file, 'r') as f:
+                    calibration_data = json.load(f)
+                    self.rssi_offset = calibration_data.get('rssi_offset', 0)
+                    print(f"Калибровка загружена: offset = {self.rssi_offset}")
+            else:
+                self.rssi_offset = 0
+                print("Файл калибровки не найден, используется offset = 0")
+        except Exception as e:
+            print(f"Ошибка загрузки калибровки: {e}")
+            self.rssi_offset = 0
+    
+    def save_calibration(self):
+        """Сохраняет калибровку в файл"""
+        try:
+            calibration_data = {
+                "rssi_offset": self.rssi_offset,
+                "timestamp": time.time(),
+                "description": "RSSI offset для выравнивания каналов (right_corrected = right_raw + offset)"
+            }
+            
+            with open(self.calibration_file, 'w') as f:
+                json.dump(calibration_data, f, indent=2)
+            
+            os.chmod(self.calibration_file, 0o666)
+            print(f"Калибровка сохранена: offset = {self.rssi_offset}")
+            
+        except Exception as e:
+            print(f"Ошибка сохранения калибровки: {e}")
+    
+    def calibrate_mode(self):
+        """Режим калибровки - измеряет фоновые значения без антенн"""
+        print("=== НАЧИНАЕМ КАЛИБРОВКУ ===")
+        print("ВАЖНО: Убедитесь что антенны сняты!")
+        
+        # Устанавливаем флаги
+        self.current_mode = self.MODE_CALIBRATE
+        
+        # Собираем данные для калибровки
+        calibration_samples = []
+        sample_duration = 8  # секунд
+        samples_per_second = 5
+        total_samples = sample_duration * samples_per_second
+        
+        print(f"Сбор данных калибровки: {sample_duration} секунд, {total_samples} измерений")
+        
+        for i in range(total_samples):
+            if self.current_mode != self.MODE_CALIBRATE:  # Проверяем не прервали ли калибровку
+                print("Калибровка прервана")
+                return
+            
+            # Читаем сырые значения без применения текущего offset
+            try:
+                left_raw = self.ads.readADC(1)   # Левая антенна adc1
+                right_raw = self.ads.readADC(0)  # Правая антенна adc0
+                
+                calibration_samples.append((left_raw, right_raw))
+                
+                # Показываем прогресс
+                if (i + 1) % samples_per_second == 0:
+                    seconds_left = (total_samples - i - 1) // samples_per_second
+                    print(f"Калибровка: {i+1}/{total_samples} измерений, осталось {seconds_left} сек")
+                
+                # Записываем промежуточный статус
+                self.write_status(left_raw, right_raw)
+                
+            except Exception as e:
+                print(f"Ошибка чтения ADC при калибровке: {e}")
+                continue
+            
+            time.sleep(0.2)  # 5 измерений в секунду
+        
+        # Анализируем результаты
+        if len(calibration_samples) < 10:
+            print("ОШИБКА: Недостаточно данных для калибровки")
+            self.current_mode = self.MODE_MANUAL
+            return
+        
+        # Вычисляем средние значения
+        avg_left = sum(sample[0] for sample in calibration_samples) / len(calibration_samples)
+        avg_right = sum(sample[1] for sample in calibration_samples) / len(calibration_samples)
+        
+        # Вычисляем новый offset (приводим правый канал к уровню левого)
+        new_offset = avg_left - avg_right
+        
+        print(f"Результаты калибровки:")
+        print(f"  Левый канал (среднее):  {avg_left:.1f}")
+        print(f"  Правый канал (среднее): {avg_right:.1f}")
+        print(f"  Старый offset: {self.rssi_offset:.1f}")
+        print(f"  Новый offset:  {new_offset:.1f}")
+        print(f"  Разность:      {new_offset - self.rssi_offset:.1f}")
+        
+        # Сохраняем новый offset
+        self.rssi_offset = new_offset
+        self.save_calibration()
+        
+        print("=== КАЛИБРОВКА ЗАВЕРШЕНА ===")
+        print("Можете устанавливать антенны обратно")
+        
+        # Возвращаемся в ручной режим
+        self.current_mode = self.MODE_MANUAL
+        time.sleep(1)
+    
     def create_command_file(self):
         """Создает файл команд если его нет"""
         if not os.path.exists(self.command_file):
@@ -126,15 +238,18 @@ class AntennaTracker:
         os.chmod(self.command_file, 0o666)
     
     def read_rssi(self):
-        """Читает RSSI с обеих антенн и применяет фильтр"""
+        """Читает RSSI с обеих антенн и применяет фильтр и калибровку"""
         try:
             # Читаем сырые значения (меняем местами левую и правую)
             left_raw = self.ads.readADC(1)   # Левая антенна теперь adc1
             right_raw = self.ads.readADC(0)  # Правая антенна теперь adc0
             
-            # Добавляем в буферы
+            # Применяем калибровочный offset к правому каналу
+            right_corrected = right_raw + self.rssi_offset
+            
+            # Добавляем в буферы уже скорректированные значения
             self.left_rssi_buffer.append(left_raw)
-            self.right_rssi_buffer.append(right_raw)
+            self.right_rssi_buffer.append(right_corrected)
             
             # Вычисляем скользящее среднее
             left_rssi = sum(self.left_rssi_buffer) / len(self.left_rssi_buffer)
@@ -257,10 +372,14 @@ class AntennaTracker:
         self.scan_in_progress = False
         self.current_mode = self.MODE_SCAN_COMPLETE  # Специальное состояние
         
+        # Записываем статус завершения
+        left_rssi, right_rssi = self.read_rssi()
+        self.write_status(left_rssi, right_rssi)
+        
         print("=== СКАНИРОВАНИЕ ЗАВЕРШЕНО ===")
         
-        # Через 2 секунды переходим в автоматический режим
-        time.sleep(2)
+        # Через 3 секунды переходим в автоматический режим
+        time.sleep(3)
         self.current_mode = self.MODE_AUTO
         print("Переход в автоматический режим")
     
@@ -343,6 +462,13 @@ class AntennaTracker:
                             self.current_mode = self.MODE_SCAN
                         else:
                             print("Сканирование уже активно")
+                    elif command == "calibrate":
+                        if self.current_mode != self.MODE_CALIBRATE:
+                            print("Запуск калибровки")
+                            # Калибровка выполняется в основном цикле
+                            self.current_mode = self.MODE_CALIBRATE
+                        else:
+                            print("Калибровка уже активна")
                     
         except Exception as e:
             print(f"Ошибка чтения команд: {e}")
@@ -366,6 +492,8 @@ class AntennaTracker:
                 # Выполняем действия в зависимости от режима
                 if self.current_mode == self.MODE_SCAN:
                     self.scan_mode()  # Выполняет полное сканирование
+                elif self.current_mode == self.MODE_CALIBRATE:
+                    self.calibrate_mode()  # Выполняет калибровку
                 elif self.current_mode == self.MODE_AUTO:
                     self.auto_mode()
                 elif self.current_mode == self.MODE_SCAN_COMPLETE:

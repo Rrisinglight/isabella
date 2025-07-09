@@ -4,7 +4,7 @@ FPV Pilot Interface - Flask приложение с WebSocket поддержко
 Интегрируется с antenna_tracker.py
 """
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO, emit
 import threading
 import time
@@ -12,15 +12,27 @@ import json
 import os
 import math
 
+# Импортируем requests, если не установлен - будет заглушка
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    print("[WARNING] requests не установлен, видеопоток недоступен")
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'fpv_antenna_tracker_secret'
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Захардкоженный URL энкодера
+ENCODER_URL = "http://192.168.1.106/isabella"
 
 class FPVInterface:
     def __init__(self):
         self.command_file = "/tmp/antenna_commands.txt"
         self.status_file = "/tmp/antenna_status.json"
         self.scan_results_file = "/tmp/antenna_scan_results.json"  # Новый файл для результатов
+        self.calibration_file = "/tmp/antenna_calibration.json"  # Файл калибровки
         
         self.running = True
         self.last_scan_timestamp = 0  # Отслеживаем последнее обновление результатов сканирования
@@ -54,7 +66,7 @@ class FPVInterface:
         """Отправляет команду в antenna_tracker с защитой"""
         try:
             # Проверяем валидность команды
-            valid_commands = ['left', 'right', 'auto', 'manual', 'scan']
+            valid_commands = ['left', 'right', 'auto', 'manual', 'scan', 'calibrate']
             if command not in valid_commands:
                 print(f"[ERROR] Недопустимая команда: {command}")
                 return False
@@ -169,7 +181,8 @@ class FPVInterface:
                         'angle': angle,
                         'auto_mode': status.get('auto_mode', False),
                         'mode': current_mode,
-                        'scan_in_progress': scan_in_progress
+                        'scan_in_progress': scan_in_progress,
+                        'calibrating': current_mode == 'calibrate'
                     }
                     
                     # Отправляем данные клиентам
@@ -181,10 +194,20 @@ class FPVInterface:
                             'scanning': True,
                             'status': 'Сканирование в процессе...'
                         })
+                    elif current_mode == 'calibrate':
+                        socketio.emit('calibration_status_update', {
+                            'calibrating': True,
+                            'status': 'Калибровка в процессе...'
+                        })
                     elif current_mode == 'scan_complete':
                         socketio.emit('scan_status_update', {
                             'scanning': False,
-                            'status': 'Сканирование завершено'
+                            'status': 'Переход в автоматический режим...'
+                        })
+                    elif current_mode == 'auto':
+                        socketio.emit('scan_status_update', {
+                            'scanning': False,
+                            'status': 'Автоматический режим'
                         })
                 else:
                     no_data_counter += 1
@@ -197,7 +220,8 @@ class FPVInterface:
                             'angle': (no_data_counter * 2) % 146,  # 0-146 градусов
                             'auto_mode': False,
                             'mode': 'manual',
-                            'scan_in_progress': False
+                            'scan_in_progress': False,
+                            'calibrating': False
                         }
                         socketio.emit('telemetry', fake_data)
                 
@@ -216,9 +240,24 @@ def index():
 
 @app.route('/live')
 def live_stream():
-    """Эндпоинт для видео потока (заглушка)"""
-    # Здесь должен быть ваш видео поток
-    return "Video stream endpoint"
+    """Proxy the video stream from the encoder."""
+    if not REQUESTS_AVAILABLE:
+        return "Video stream unavailable - requests library not installed", 503
+        
+    def generate():
+        try:
+            print(f"[INFO] Подключение к видеопотоку: {ENCODER_URL}")
+            r = requests.get(ENCODER_URL, stream=True, timeout=5)
+            r.raise_for_status()
+            for chunk in r.iter_content(chunk_size=4096):
+                yield chunk
+        except Exception as e:
+            print(f"[ERROR] Ошибка видеопотока: {e}")
+            yield b"Video stream error"
+
+    return Response(generate(),
+                   mimetype='video/mp2t',
+                   headers={'Cache-Control': 'no-cache'})
 
 @socketio.on('connect')
 def handle_connect():
@@ -298,6 +337,23 @@ def handle_stop_scan():
         print(f"[ERROR] Ошибка в stop_angle_scan: {e}")
         emit('scan_stopped', {'success': False, 'error': str(e)})
 
+@socketio.on('start_calibration')
+def handle_calibration():
+    """Обработка запуска калибровки"""
+    try:
+        print("[INFO] Запрос на запуск калибровки")
+        
+        success = fpv_interface.send_command('calibrate')
+        
+        if success:
+            emit('calibration_started', {'success': True, 'message': 'Калибровка запущена. Убедитесь что антенны сняты!'})
+        else:
+            emit('calibration_started', {'success': False, 'error': 'Ошибка отправки команды'})
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в start_calibration: {e}")
+        emit('calibration_started', {'success': False, 'error': str(e)})
+
 if __name__ == '__main__':
     print("Запуск FPV Interface сервера...")
     print("Убедитесь что antenna_tracker.py запущен!")
@@ -305,4 +361,11 @@ if __name__ == '__main__':
     print(f"  Команды: {fpv_interface.command_file}")
     print(f"  Статус: {fpv_interface.status_file}")
     print(f"  Результаты сканирования: {fpv_interface.scan_results_file}")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    
+    if REQUESTS_AVAILABLE:
+        print(f"Видеопоток: {ENCODER_URL}")
+    else:
+        print("ВНИМАНИЕ: Видеопоток недоступен - установите: pip install requests")
+    
+    print("Веб-интерфейс будет доступен по адресу: http://0.0.0.0:5000")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)

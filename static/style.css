@@ -279,6 +279,48 @@ body {
     margin-bottom: 1rem;
 }
 
+/* НОВОЕ: Контейнер для кнопок */
+.scan-buttons {
+    display: flex;
+    gap: 0.75rem;
+}
+
+/* НОВОЕ: Кнопка калибровки */
+.calibrate-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    border: 1px solid #ff6b6b;
+    color: #ff6b6b;
+    background: rgba(40, 40, 40, 0.6);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.calibrate-btn:hover {
+    background: rgba(255, 107, 107, 0.2);
+    box-shadow: 0 0 15px rgba(255, 107, 107, 0.3);
+}
+
+.calibrate-btn.active {
+    background: rgba(255, 107, 107, 0.3);
+    box-shadow: 0 0 20px rgba(255, 107, 107, 0.5);
+    color: #fff;
+}
+
+.calibrate-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.calibrate-btn.disabled:hover {
+    background: rgba(40, 40, 40, 0.6);
+    box-shadow: none;
+}
+
 .scan-btn {
     display: flex;
     align-items: center;
@@ -395,6 +437,18 @@ body {
     .antenna-btn .material-icons {
         font-size: 1rem;
     }
+    
+    /* Адаптивные кнопки сканирования */
+    .scan-buttons {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .calibrate-btn,
+    .scan-btn {
+        padding: 0.6rem 1rem;
+        font-size: 0.875rem;
+    }
 }
 
 @media (max-width: 768px) {
@@ -425,5 +479,16 @@ body {
             "map"
             "frequency"
             "scan";
+    }
+    
+    .scan-buttons {
+        flex-direction: row;
+        justify-content: center;
+    }
+    
+    .calibrate-btn,
+    .scan-btn {
+        padding: 0.5rem 0.8rem;
+        font-size: 0.8rem;
     }
 }

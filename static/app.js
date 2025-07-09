@@ -34,6 +34,7 @@ class FPVInterface {
         this.leftBtn = document.getElementById('leftBtn');
         this.rightBtn = document.getElementById('rightBtn');
         this.scanBtn = document.getElementById('scanBtn');
+        this.calibrateBtn = document.getElementById('calibrateBtn');  // НОВОЕ
         
         // Video controls
         this.playPauseBtn = document.getElementById('playPauseBtn');
@@ -64,6 +65,7 @@ class FPVInterface {
             leftBtn: !!this.leftBtn,
             rightBtn: !!this.rightBtn,
             scanBtn: !!this.scanBtn,
+            calibrateBtn: !!this.calibrateBtn,
             videoElement: !!this.videoElement
         });
     }
@@ -174,7 +176,22 @@ class FPVInterface {
         // НОВОЕ: Обработка статуса сканирования
         this.socket.on('scan_status_update', (data) => {
             console.log('Scan status update:', data);
-            this.updateScanUI(data.scanning, data.status);
+            
+            // Обновляем статус без изменения кнопки если сканирование не активно
+            if (!data.scanning && this.scanStatus) {
+                this.scanInProgress = false;
+                this.scanStatus.textContent = data.status;
+                this.scanStatus.classList.remove('active');
+                
+                // Обновляем кнопку если сканирование завершено
+                if (this.scanBtn) {
+                    this.scanBtn.classList.remove('active');
+                    const buttonText = this.scanBtn.querySelector('span:last-child');
+                    if (buttonText) buttonText.textContent = 'Start Scan';
+                }
+            } else if (data.scanning) {
+                this.updateScanUI(true, data.status);
+            }
         });
 
         // ИСПРАВЛЕНО: Обработка завершения сканирования с данными для графика
@@ -186,6 +203,26 @@ class FPVInterface {
         this.socket.on('scan_stopped', (data) => {
             console.log('Scan stopped:', data);
             this.stopScan();
+        });
+
+        // НОВОЕ: Обработка калибровки
+        this.socket.on('calibration_started', (data) => {
+            console.log('Calibration started:', data);
+            if (data.success) {
+                this.startCalibration();
+            } else {
+                console.error('Failed to start calibration:', data.error);
+                alert('Ошибка запуска калибровки: ' + (data.error || 'Неизвестная ошибка'));
+            }
+        });
+
+        this.socket.on('calibration_status_update', (data) => {
+            console.log('Calibration status update:', data);
+            if (data.calibrating) {
+                this.updateCalibrationUI(true, data.status);
+            } else {
+                this.stopCalibration();
+            }
         });
     }
 
@@ -259,6 +296,29 @@ class FPVInterface {
             });
         }
 
+        // НОВОЕ: Calibrate button
+        if (this.calibrateBtn) {
+            this.calibrateBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Calibrate button clicked');
+                
+                // Показываем предупреждение пользователю
+                const confirmed = confirm(
+                    'КАЛИБРОВКА АНТЕНН\n\n' +
+                    '1. Снимите обе антенны с приемников\n' +
+                    '2. Нажмите OK для начала калибровки\n' +
+                    '3. Калибровка займет ~8 секунд\n\n' +
+                    'Продолжить?'
+                );
+                
+                if (confirmed) {
+                    console.log('Starting calibration');
+                    this.socket.emit('start_calibration');
+                }
+            });
+        }
+
         // Video controls
         if (this.playPauseBtn) {
             this.playPauseBtn.addEventListener('click', (e) => {
@@ -278,16 +338,39 @@ class FPVInterface {
     }
 
     initVideo() {
+        // --- Video Player Setup (из рабочего примера) ---
         if (typeof mpegts !== 'undefined' && mpegts.isSupported()) {
-            const player = mpegts.createPlayer({
-                type: 'mse',
-                isLive: true,
-                url: '/live'
-            });
-            player.attachMediaElement(this.videoElement);
-            player.load();
-            this.videoElement.muted = true;
-            this.videoPlayer = player;
+            const videoElement = document.getElementById('videoElement');
+            if (videoElement) {
+                const player = mpegts.createPlayer({
+                    type: 'mse',
+                    isLive: true,
+                    url: '/live'
+                });
+                player.attachMediaElement(videoElement);
+                player.load();
+                videoElement.muted = true;
+                this.videoPlayer = player;
+                
+                // Автоматически запускаем воспроизведение
+                player.play().then(() => {
+                    this.isPlaying = true;
+                    console.log('Video started playing');
+                    
+                    // Обновляем иконку кнопки
+                    if (this.playPauseBtn) {
+                        const icon = this.playPauseBtn.querySelector('.material-icons');
+                        if (icon) icon.textContent = 'pause';
+                    }
+                }).catch(err => {
+                    console.log('Video autoplay blocked or failed:', err);
+                    // Это нормально - браузер может блокировать автовоспроизведение
+                });
+                
+                console.log('MPEGTS player initialized');
+            }
+        } else {
+            console.warn('MPEGTS not supported or not loaded');
         }
     }
 
@@ -385,7 +468,7 @@ class FPVInterface {
     completeScan(data) {
         console.log('Processing scan completion with data:', data);
         
-        // Обновляем UI
+        // СРАЗУ обновляем UI - сканирование завершено
         this.updateScanUI(false, 'Complete');
         
         // Обновляем лучший угол
@@ -415,13 +498,12 @@ class FPVInterface {
             console.warn('No scan data received');
         }
         
-        // Сбрасываем статус через 3 секунды
+        // Показываем "Complete" на 1 секунду, затем ждем обновления от сервера
         setTimeout(() => {
             if (this.scanStatus && !this.scanInProgress) {
-                this.scanStatus.textContent = 'Idle';
-                this.scanStatus.classList.remove('active');
+                this.scanStatus.textContent = 'Переход в авто режим...';
             }
-        }, 3000);
+        }, 1000);
     }
 
     // ИСПРАВЛЕНО: Остановка сканирования
@@ -434,6 +516,56 @@ class FPVInterface {
                 this.scanStatus.textContent = 'Idle';
             }
         }, 1500);
+    }
+
+    // НОВОЕ: Управление калибровкой
+    startCalibration() {
+        console.log('Starting calibration UI');
+        this.updateCalibrationUI(true, 'Калибровка...');
+    }
+
+    updateCalibrationUI(calibrating, statusText) {
+        // Обновляем кнопку калибровки
+        if (this.calibrateBtn) {
+            const buttonText = this.calibrateBtn.querySelector('span:last-child');
+            
+            if (calibrating) {
+                this.calibrateBtn.classList.add('active');
+                this.calibrateBtn.classList.add('disabled');
+                if (buttonText) buttonText.textContent = 'Calibrating...';
+            } else {
+                this.calibrateBtn.classList.remove('active');
+                this.calibrateBtn.classList.remove('disabled');
+                if (buttonText) buttonText.textContent = 'Calibrate';
+            }
+        }
+        
+        // Обновляем статус (используем тот же элемент что и для сканирования)
+        if (this.scanStatus) {
+            this.scanStatus.textContent = statusText || (calibrating ? 'Калибровка...' : 'Idle');
+            
+            if (calibrating) {
+                this.scanStatus.classList.add('active');
+            } else {
+                this.scanStatus.classList.remove('active');
+            }
+        }
+    }
+
+    stopCalibration() {
+        console.log('Calibration completed');
+        this.updateCalibrationUI(false, 'Калибровка завершена');
+        
+        // Показываем уведомление
+        alert('Калибровка завершена!\nТеперь можете устанавливать антенны обратно.');
+        
+        // Сбрасываем статус через короткое время
+        setTimeout(() => {
+            if (this.scanStatus) {
+                this.scanStatus.textContent = 'Idle';
+                this.scanStatus.classList.remove('active');
+            }
+        }, 3000);
     }
 
     toggleFullscreen() {
@@ -455,20 +587,33 @@ class FPVInterface {
         
         if (this.isPlaying) {
             // Currently playing, pause it
-            this.videoElement.pause();
+            if (this.videoPlayer) {
+                this.videoPlayer.pause();
+            } else {
+                this.videoElement.pause();
+            }
             this.isPlaying = false;
-            icon.textContent = 'play_arrow';
+            if (icon) icon.textContent = 'play_arrow';
             console.log('Video paused');
         } else {
             // Currently paused, play it
             if (this.videoPlayer) {
-                this.videoPlayer.play();
+                this.videoPlayer.play().then(() => {
+                    this.isPlaying = true;
+                    if (icon) icon.textContent = 'pause';
+                    console.log('Video playing');
+                }).catch(err => {
+                    console.error('Video play error:', err);
+                });
             } else {
-                this.videoElement.play();
+                this.videoElement.play().then(() => {
+                    this.isPlaying = true;
+                    if (icon) icon.textContent = 'pause';
+                    console.log('Video playing');
+                }).catch(err => {
+                    console.error('Video play error:', err);
+                });
             }
-            this.isPlaying = true;
-            icon.textContent = 'pause';
-            console.log('Video playing');
         }
     }
 }

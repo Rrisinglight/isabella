@@ -1,0 +1,21 @@
+[Unit]
+Description=FPV Interface Web Service
+After=network.target antenna-tracker.service
+Wants=network.target
+Requires=antenna-tracker.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/video
+Environment=PATH=/home/pi/video/vid/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=FLASK_ENV=production
+ExecStart=/home/pi/video/vid/bin/python3 /home/pi/video/app.py
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
