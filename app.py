@@ -257,17 +257,6 @@ def handle_set_mode(data):
     try:
         auto_mode = bool(data.get('auto', False))
         
-        # Защита от частых переключений
-        current_time = time.time()
-        if not hasattr(handle_set_mode, 'last_call'):
-            handle_set_mode.last_call = 0
-        
-        if current_time - handle_set_mode.last_call < 0.5:  # 500ms защита
-            emit('mode_update', {'auto_mode': auto_mode, 'success': False, 'error': 'Too frequent'})
-            return
-        
-        handle_set_mode.last_call = current_time
-        
         if auto_mode:
             success = fpv_interface.send_command('auto')
         else:
@@ -285,17 +274,6 @@ def handle_manual_rotate(data):
     try:
         direction = str(data.get('direction', '')).lower()
         
-        # Защита от частых команд
-        current_time = time.time()
-        if not hasattr(handle_manual_rotate, 'last_call'):
-            handle_manual_rotate.last_call = 0
-        
-        if current_time - handle_manual_rotate.last_call < 0.2:  # 200ms защита
-            emit('rotate_response', {'direction': direction, 'success': False, 'error': 'Too frequent'})
-            return
-            
-        handle_manual_rotate.last_call = current_time
-        
         # Проверяем валидное направление
         if direction not in ['left', 'right']:
             emit('rotate_response', {'direction': direction, 'success': False, 'error': 'Invalid direction'})
@@ -312,17 +290,6 @@ def handle_manual_rotate(data):
 def handle_angle_scan():
     """Обработка запуска angle scan"""
     try:
-        # Защита от частых запросов сканирования
-        current_time = time.time()
-        if not hasattr(handle_angle_scan, 'last_call'):
-            handle_angle_scan.last_call = 0
-        
-        if current_time - handle_angle_scan.last_call < 2.0:  # 2 секунды защита
-            emit('scan_started', {'success': False, 'error': 'Scan cooldown'})
-            return
-            
-        handle_angle_scan.last_call = current_time
-        
         # Проверяем что сканирование не активно
         if fpv_interface.scan_in_progress:
             emit('scan_started', {'success': False, 'error': 'Scan already active'})

@@ -70,10 +70,12 @@ class FPVInterface {
 
     initMap() {
         // Dark themed map centered on Bangalore
-        this.map = L.map('map').setView([12.9716, 77.5946], 13);
+        this.map = L.map('map', {
+            attributionControl: false  // Убираем атрибуцию Leaflet
+        }).setView([12.9716, 77.5946], 13);
         
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap &copy; CARTO',
+            attribution: '',  // Убираем все атрибуции
             subdomains: 'abcd',
             maxZoom: 19
         }).addTo(this.map);
@@ -188,35 +190,41 @@ class FPVInterface {
             });
         }
 
-        // Left button
+        // Left button - автоматически выключает авто режим
         if (this.leftBtn) {
             this.leftBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('Left button clicked');
                 
-                if (!this.autoBtn.classList.contains('active')) {
-                    console.log('Sending left command');
-                    this.socket.emit('manual_rotate', { direction: 'left' });
-                } else {
-                    console.log('Auto mode active, ignoring left');
+                // Сначала выключаем авто режим если он включен
+                if (this.autoBtn.classList.contains('active')) {
+                    console.log('Auto mode was active, turning off');
+                    this.socket.emit('set_mode', { auto: false });
                 }
+                
+                // Затем отправляем команду поворота
+                console.log('Sending left command');
+                this.socket.emit('manual_rotate', { direction: 'left' });
             });
         }
 
-        // Right button
+        // Right button - автоматически выключает авто режим
         if (this.rightBtn) {
             this.rightBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('Right button clicked');
                 
-                if (!this.autoBtn.classList.contains('active')) {
-                    console.log('Sending right command');
-                    this.socket.emit('manual_rotate', { direction: 'right' });
-                } else {
-                    console.log('Auto mode active, ignoring right');
+                // Сначала выключаем авто режим если он включен
+                if (this.autoBtn.classList.contains('active')) {
+                    console.log('Auto mode was active, turning off');
+                    this.socket.emit('set_mode', { auto: false });
                 }
+                
+                // Затем отправляем команду поворота
+                console.log('Sending right command');
+                this.socket.emit('manual_rotate', { direction: 'right' });
             });
         }
 

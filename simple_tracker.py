@@ -195,7 +195,7 @@ class AntennaTracker:
                     command = f.read().strip()
                 
                 if command:
-                    # Очищаем файл команд
+                    # Очищаем файл команд СРАЗУ
                     with open(self.command_file, 'w') as f:
                         f.write("")
                     
@@ -209,6 +209,9 @@ class AntennaTracker:
                     elif command == "auto":
                         print("Переход в автоматический режим")
                         self.current_mode = self.MODE_AUTO
+                    elif command == "manual":
+                        print("Переход в ручной режим")
+                        self.current_mode = self.MODE_MANUAL
                     elif command == "scan":
                         print("Запуск сканирования")
                         self.current_mode = self.MODE_SCAN
