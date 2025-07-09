@@ -1,4 +1,4 @@
-// FPV Interface JavaScript
+// FPV Interface JavaScript - Исправленная версия
 
 class FPVInterface {
     constructor() {
@@ -120,7 +120,6 @@ class FPVInterface {
                         title: { display: true, text: 'RSSI', color: '#e0e0e0' },
                         ticks: { color: '#e0e0e0' },
                         grid: { color: 'rgba(255, 255, 255, 0.1)' }
-                        // Убираем фиксированные min/max - пусть автоматически масштабируется
                     }
                 }
             }
@@ -144,6 +143,11 @@ class FPVInterface {
             this.lastDataTime = Date.now();
             this.updateTelemetry(data);
             this.updateStatus('online', 'Online');
+            
+            // Обновляем статус сканирования на основе данных телеметрии
+            if (data.scan_in_progress) {
+                this.updateScanUI(true, 'Scanning...');
+            }
         });
 
         this.socket.on('mode_update', (data) => {
@@ -158,15 +162,24 @@ class FPVInterface {
         this.socket.on('scan_started', (data) => {
             console.log('Scan started:', data);
             if (data.success) {
-                this.startScan();
+                this.updateScanUI(true, 'Starting scan...');
+                // Очищаем график при запуске нового сканирования
+                this.clearChart();
+            } else {
+                console.error('Failed to start scan:', data.error);
+                this.updateScanUI(false, 'Failed to start');
             }
         });
 
-        this.socket.on('scan_data_point', (data) => {
-            this.addScanPoint(data);
+        // НОВОЕ: Обработка статуса сканирования
+        this.socket.on('scan_status_update', (data) => {
+            console.log('Scan status update:', data);
+            this.updateScanUI(data.scanning, data.status);
         });
 
+        // ИСПРАВЛЕНО: Обработка завершения сканирования с данными для графика
         this.socket.on('scan_complete', (data) => {
+            console.log('Scan complete:', data);
             this.completeScan(data);
         });
 
@@ -229,7 +242,7 @@ class FPVInterface {
             });
         }
 
-        // Scan button
+        // Scan button - ИСПРАВЛЕНО
         if (this.scanBtn) {
             this.scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -330,69 +343,97 @@ class FPVInterface {
         }
     }
 
-    startScan() {
-        this.scanInProgress = true;
-        if (this.scanStatus) this.scanStatus.textContent = 'Scanning...';
-        if (this.scanStatus) this.scanStatus.classList.add('active');
-        if (this.scanBtn) {
-            this.scanBtn.classList.add('active');
-            this.scanBtn.querySelector('span:last-child').textContent = 'Stop Scan';
-        }
+    // НОВОЕ: Универсальная функция обновления UI сканирования
+    updateScanUI(scanning, statusText) {
+        this.scanInProgress = scanning;
         
-        // Clear chart
-        this.scanChart.data.labels = [];
-        this.scanChart.data.datasets[0].data = [];
-        this.scanChart.update();
-    }
-
-    addScanPoint(data) {
-        this.scanChart.data.labels.push(data.angle.toFixed(0) + '°');
-        this.scanChart.data.datasets[0].data.push(data.rssi);
-        
-        // Limit points
-        if (this.scanChart.data.labels.length > 50) {
-            this.scanChart.data.labels.shift();
-            this.scanChart.data.datasets[0].data.shift();
-        }
-        
-        this.scanChart.update('none');
-    }
-
-    completeScan(data) {
-        this.stopScan();
-        
-        // Find max RSSI angle
-        if (data.data && data.data.length > 0) {
-            let maxRssi = 0;
-            let maxAngleValue = 0;
+        // Обновляем статус
+        if (this.scanStatus) {
+            this.scanStatus.textContent = statusText || (scanning ? 'Scanning...' : 'Idle');
             
-            data.data.forEach(point => {
-                if (point.rssi > maxRssi) {
-                    maxRssi = point.rssi;
-                    maxAngleValue = point.angle;
-                }
-            });
-            
-            if (this.maxAngle) {
-                this.maxAngle.textContent = `${maxAngleValue.toFixed(0)}°`;
+            if (scanning) {
+                this.scanStatus.classList.add('active');
+            } else {
+                this.scanStatus.classList.remove('active');
             }
         }
         
-        if (this.scanStatus) this.scanStatus.textContent = 'Complete';
+        // Обновляем кнопку
+        if (this.scanBtn) {
+            const buttonText = this.scanBtn.querySelector('span:last-child');
+            
+            if (scanning) {
+                this.scanBtn.classList.add('active');
+                if (buttonText) buttonText.textContent = 'Stop Scan';
+            } else {
+                this.scanBtn.classList.remove('active');
+                if (buttonText) buttonText.textContent = 'Start Scan';
+            }
+        }
+    }
+
+    // НОВОЕ: Очистка графика
+    clearChart() {
+        if (this.scanChart) {
+            this.scanChart.data.labels = [];
+            this.scanChart.data.datasets[0].data = [];
+            this.scanChart.update();
+        }
+    }
+
+    // ИСПРАВЛЕНО: Завершение сканирования с полными данными
+    completeScan(data) {
+        console.log('Processing scan completion with data:', data);
         
-        // Reset status after delay
+        // Обновляем UI
+        this.updateScanUI(false, 'Complete');
+        
+        // Обновляем лучший угол
+        if (data.best_angle !== undefined && this.maxAngle) {
+            this.maxAngle.textContent = `${data.best_angle}°`;
+        }
+        
+        // НОВОЕ: Отображаем график с полными данными
+        if (data.data && data.data.length > 0) {
+            console.log(`Loading ${data.data.length} scan points to chart`);
+            
+            // Очищаем текущие данные
+            this.scanChart.data.labels = [];
+            this.scanChart.data.datasets[0].data = [];
+            
+            // Добавляем все точки сразу
+            data.data.forEach(point => {
+                this.scanChart.data.labels.push(`${point.angle}°`);
+                this.scanChart.data.datasets[0].data.push(point.rssi);
+            });
+            
+            // Обновляем график
+            this.scanChart.update();
+            
+            console.log('Chart updated with scan results');
+        } else {
+            console.warn('No scan data received');
+        }
+        
+        // Сбрасываем статус через 3 секунды
         setTimeout(() => {
-            if (this.scanStatus) this.scanStatus.textContent = 'Idle';
+            if (this.scanStatus && !this.scanInProgress) {
+                this.scanStatus.textContent = 'Idle';
+                this.scanStatus.classList.remove('active');
+            }
         }, 3000);
     }
 
+    // ИСПРАВЛЕНО: Остановка сканирования
     stopScan() {
-        this.scanInProgress = false;
-        if (this.scanStatus) this.scanStatus.classList.remove('active');
-        if (this.scanBtn) {
-            this.scanBtn.classList.remove('active');
-            this.scanBtn.querySelector('span:last-child').textContent = 'Start Scan';
-        }
+        this.updateScanUI(false, 'Stopped');
+        
+        // Сбрасываем статус через короткое время
+        setTimeout(() => {
+            if (this.scanStatus && !this.scanInProgress) {
+                this.scanStatus.textContent = 'Idle';
+            }
+        }, 1500);
     }
 
     toggleFullscreen() {

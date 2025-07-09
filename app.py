@@ -20,13 +20,10 @@ class FPVInterface:
     def __init__(self):
         self.command_file = "/tmp/antenna_commands.txt"
         self.status_file = "/tmp/antenna_status.json"
-        self.scan_data_file = "/tmp/angle_scan_data.json"
-        
-        # Данные для angle scan
-        self.scan_in_progress = False
-        self.scan_data = []
+        self.scan_results_file = "/tmp/antenna_scan_results.json"  # Новый файл для результатов
         
         self.running = True
+        self.last_scan_timestamp = 0  # Отслеживаем последнее обновление результатов сканирования
         
         # Создаем файлы если их нет
         self.init_files()
@@ -35,6 +32,11 @@ class FPVInterface:
         self.data_thread = threading.Thread(target=self.read_data_loop)
         self.data_thread.daemon = True
         self.data_thread.start()
+        
+        # Отдельный поток для мониторинга результатов сканирования
+        self.scan_monitor_thread = threading.Thread(target=self.monitor_scan_results)
+        self.scan_monitor_thread.daemon = True
+        self.scan_monitor_thread.start()
         
     def init_files(self):
         """Инициализация файлов"""
@@ -77,6 +79,7 @@ class FPVInterface:
                     print(f"[ERROR] Команда записалась неправильно: {written_command} != {command}")
                     return False
             
+            print(f"[INFO] Команда '{command}' отправлена")
             return True
             
         except Exception as e:
@@ -97,88 +100,48 @@ class FPVInterface:
             print(f"[ERROR] Ошибка чтения статуса: {e}")
         return None
     
-    def start_angle_scan(self):
-        """Запускает простое сканирование углов"""
+    def read_scan_results(self):
+        """Читает результаты сканирования"""
         try:
-            if self.scan_in_progress:
-                print("[WARNING] Попытка запуска сканирования когда оно уже активно")
-                return False
-            
-            self.scan_in_progress = True
-            
-            # Просто отправляем команду сканирования в antenna_tracker
-            success = self.send_command('scan')
-            
-            if success:
-                # Запускаем мониторинг сканирования в отдельном потоке
-                monitor_thread = threading.Thread(target=self.monitor_scan)
-                monitor_thread.daemon = True
-                monitor_thread.start()
-                return True
-            else:
-                self.scan_in_progress = False
-                return False
-            
+            if os.path.exists(self.scan_results_file) and os.path.getsize(self.scan_results_file) > 0:
+                with open(self.scan_results_file, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        return json.loads(content)
+        except json.JSONDecodeError:
+            pass
         except Exception as e:
-            print(f"[ERROR] Ошибка запуска сканирования: {e}")
-            self.scan_in_progress = False
-            return False
+            print(f"[ERROR] Ошибка чтения результатов сканирования: {e}")
+        return None
     
-    def monitor_scan(self):
-        """Мониторит процесс сканирования и отправляет данные для графика"""
-        try:
-            # Ждем пока antenna_tracker выполняет сканирование
-            scan_start_time = time.time()
-            max_scan_time = 60  # Максимум 60 секунд на сканирование
-            last_position = None
-            
-            while self.scan_in_progress and (time.time() - scan_start_time) < max_scan_time:
-                status = self.read_status()
+    def monitor_scan_results(self):
+        """Мониторит файл результатов сканирования и отправляет обновления"""
+        while self.running:
+            try:
+                scan_results = self.read_scan_results()
                 
-                if status:
-                    current_mode = status.get('mode', 'manual')
-                    current_position = status.get('angle', 2047)
+                if scan_results and scan_results.get('scan_complete', False):
+                    # Проверяем, новые ли это результаты
+                    timestamp = scan_results.get('timestamp', 0)
                     
-                    # Если режим изменился с 'scan' на что-то другое, значит сканирование завершено
-                    if current_mode != 'scan':
-                        break
-                    
-                    # Отправляем данные для графика во время сканирования
-                    if current_position != last_position:
-                        # Конвертируем позицию в угол (0-146 градусов)
-                        angle = ((current_position - 1100) / 11.0)
-                        angle = max(0, min(146, angle))
+                    if timestamp > self.last_scan_timestamp:
+                        self.last_scan_timestamp = timestamp
                         
-                        # Отправляем сумму RSSI для графика
-                        total_rssi = status.get('rssi_a', 0) + status.get('rssi_b', 0)
+                        print(f"[INFO] Новые результаты сканирования: лучший угол {scan_results.get('best_angle', 0)}°")
                         
-                        socketio.emit('scan_data_point', {
-                            'angle': angle,
-                            'rssi': total_rssi
+                        # Отправляем результаты клиентам
+                        socketio.emit('scan_complete', {
+                            'success': True,
+                            'best_angle': scan_results.get('best_angle', 0),
+                            'data': scan_results.get('scan_data', []),
+                            'message': f"Сканирование завершено. Оптимальный угол: {scan_results.get('best_angle', 0)}°"
                         })
                         
-                        last_position = current_position
+                time.sleep(1)  # Проверяем каждую секунду
                 
-                time.sleep(0.2)  # Проверяем каждые 200мс
-            
-            # Сканирование завершено
-            self.scan_in_progress = False
-            
-            # Отправляем сигнал о завершении
-            socketio.emit('scan_complete', {
-                'success': True,
-                'message': 'Сканирование завершено'
-            })
-            
-            print("Сканирование завершено")
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка мониторинга сканирования: {e}")
-            self.scan_in_progress = False
-            socketio.emit('scan_complete', {
-                'success': False,
-                'error': str(e)
-            })
+            except Exception as e:
+                print(f"[ERROR] Ошибка мониторинга результатов сканирования: {e}")
+                time.sleep(5)
     
     def read_data_loop(self):
         """Основной цикл чтения данных"""
@@ -192,21 +155,37 @@ class FPVInterface:
                     no_data_counter = 0
                     
                     # Конвертируем позицию сервопривода в угол (0-146 градусов)
-                    # 11 единиц = 1 градус, диапазон 1100-2700 (1600 единиц = ~146 градусов)
                     position = status.get('angle', 2047)
                     angle = ((position - 1100) / 11.0)  # Прямое преобразование в градусы
                     angle = max(0, min(146, angle))  # Ограничиваем диапазон
+                    
+                    # Определяем режим работы
+                    current_mode = status.get('mode', 'manual')
+                    scan_in_progress = status.get('scan_in_progress', False)
                     
                     telemetry_data = {
                         'rssi_a': status.get('rssi_a', 0),
                         'rssi_b': status.get('rssi_b', 0),
                         'angle': angle,
                         'auto_mode': status.get('auto_mode', False),
-                        'mode': status.get('mode', 'manual')
+                        'mode': current_mode,
+                        'scan_in_progress': scan_in_progress
                     }
                     
                     # Отправляем данные клиентам
                     socketio.emit('telemetry', telemetry_data)
+                    
+                    # Отправляем обновления статуса сканирования
+                    if scan_in_progress:
+                        socketio.emit('scan_status_update', {
+                            'scanning': True,
+                            'status': 'Сканирование в процессе...'
+                        })
+                    elif current_mode == 'scan_complete':
+                        socketio.emit('scan_status_update', {
+                            'scanning': False,
+                            'status': 'Сканирование завершено'
+                        })
                 else:
                     no_data_counter += 1
                     
@@ -217,7 +196,8 @@ class FPVInterface:
                             'rssi_b': 5200 + (no_data_counter % 500),  # Диапазон 5200-5700
                             'angle': (no_data_counter * 2) % 146,  # 0-146 градусов
                             'auto_mode': False,
-                            'mode': 'manual'
+                            'mode': 'manual',
+                            'scan_in_progress': False
                         }
                         socketio.emit('telemetry', fake_data)
                 
@@ -243,12 +223,13 @@ def live_stream():
 @socketio.on('connect')
 def handle_connect():
     """Обработка подключения клиента"""
+    print("[INFO] Клиент подключился")
     emit('connected', {'status': 'connected'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Обработка отключения клиента"""
-    pass
+    print("[INFO] Клиент отключился")
 
 @socketio.on('set_mode')
 def handle_set_mode(data):
@@ -289,13 +270,14 @@ def handle_manual_rotate(data):
 def handle_angle_scan():
     """Обработка запуска angle scan"""
     try:
-        # Проверяем что сканирование не активно
-        if fpv_interface.scan_in_progress:
-            emit('scan_started', {'success': False, 'error': 'Scan already active'})
-            return
+        print("[INFO] Запрос на запуск сканирования")
         
-        success = fpv_interface.start_angle_scan()
-        emit('scan_started', {'success': success})
+        success = fpv_interface.send_command('scan')
+        
+        if success:
+            emit('scan_started', {'success': True, 'message': 'Команда сканирования отправлена'})
+        else:
+            emit('scan_started', {'success': False, 'error': 'Ошибка отправки команды'})
         
     except Exception as e:
         print(f"[ERROR] Ошибка в start_angle_scan: {e}")
@@ -305,8 +287,12 @@ def handle_angle_scan():
 def handle_stop_scan():
     """Остановка сканирования"""
     try:
-        fpv_interface.scan_in_progress = False
-        emit('scan_stopped', {'success': True})
+        print("[INFO] Запрос на остановку сканирования")
+        
+        # Отправляем команду перехода в ручной режим (прерывает сканирование)
+        success = fpv_interface.send_command('manual')
+        
+        emit('scan_stopped', {'success': success, 'message': 'Сканирование остановлено'})
         
     except Exception as e:
         print(f"[ERROR] Ошибка в stop_angle_scan: {e}")
@@ -315,4 +301,8 @@ def handle_stop_scan():
 if __name__ == '__main__':
     print("Запуск FPV Interface сервера...")
     print("Убедитесь что antenna_tracker.py запущен!")
+    print(f"Мониторинг файлов:")
+    print(f"  Команды: {fpv_interface.command_file}")
+    print(f"  Статус: {fpv_interface.status_file}")
+    print(f"  Результаты сканирования: {fpv_interface.scan_results_file}")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)

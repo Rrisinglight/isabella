@@ -7,6 +7,7 @@
 import time
 import threading
 import os
+import json
 from collections import deque
 from st3215 import ST3215
 import ADS1x15
@@ -34,24 +35,28 @@ class AntennaTracker:
         self.MODE_MANUAL = "manual"
         self.MODE_AUTO = "auto" 
         self.MODE_SCAN = "scan"
-        self.current_mode = self.MODE_SCAN  # Начинаем со сканирования
+        self.MODE_SCAN_COMPLETE = "scan_complete"  # Новое состояние для завершения
+        self.current_mode = self.MODE_SCAN  # Начинаем со сканирования при запуске
         
         # Файлы для команд и статуса
         self.command_file = "/tmp/antenna_commands.txt"
         self.status_file = "/tmp/antenna_status.json"
+        self.scan_results_file = "/tmp/antenna_scan_results.json"  # Новый файл для результатов
+        
         self.create_command_file()
         self.create_status_file()
         
         # Флаги и блокировки
         self.running = True
         self.position_lock = threading.Lock()
+        self.scan_in_progress = False  # Явный флаг сканирования
         
         print("Antenna Tracker инициализирован")
         print(f"Позиция: {self.position} (центр: {self.center_pos})")
+        print(f"Начальный режим: {self.current_mode} - сканирование запустится автоматически")
         
     def create_status_file(self):
         """Создает файл статуса если его нет"""
-        import json
         if not os.path.exists(self.status_file):
             with open(self.status_file, 'w') as f:
                 json.dump({}, f)
@@ -59,7 +64,6 @@ class AntennaTracker:
     
     def write_status(self, left_rssi, right_rssi):
         """Записывает текущий статус в файл"""
-        import json
         try:
             status = {
                 "rssi_a": left_rssi,
@@ -67,12 +71,52 @@ class AntennaTracker:
                 "angle": self.position,
                 "auto_mode": self.current_mode == self.MODE_AUTO,
                 "mode": self.current_mode,
+                "scan_in_progress": self.scan_in_progress,
                 "timestamp": time.time()
             }
             with open(self.status_file, 'w') as f:
                 json.dump(status, f)
         except Exception as e:
             print(f"Ошибка записи статуса: {e}")
+    
+    def write_scan_results(self, scan_data, best_position, min_difference):
+        """Записывает результаты сканирования в отдельный файл"""
+        try:
+            # Конвертируем данные для графика
+            graph_data = []
+            for pos, left_rssi, right_rssi, diff in scan_data:
+                # Преобразуем позицию в градусы (0-146)
+                angle = ((pos - self.left_limit) / (self.right_limit - self.left_limit)) * 146
+                total_rssi = left_rssi + right_rssi  # Суммарный RSSI для графика
+                graph_data.append({
+                    "angle": round(angle, 1),
+                    "rssi": round(total_rssi, 0),
+                    "left_rssi": round(left_rssi, 0),
+                    "right_rssi": round(right_rssi, 0),
+                    "difference": round(diff, 0)
+                })
+            
+            # Лучшая позиция в градусах
+            best_angle = ((best_position - self.left_limit) / (self.right_limit - self.left_limit)) * 146
+            
+            results = {
+                "timestamp": time.time(),
+                "scan_complete": True,
+                "best_position": best_position,
+                "best_angle": round(best_angle, 1),
+                "min_difference": round(min_difference, 0),
+                "data_points": len(graph_data),
+                "scan_data": graph_data
+            }
+            
+            with open(self.scan_results_file, 'w') as f:
+                json.dump(results, f, indent=2)
+            
+            os.chmod(self.scan_results_file, 0o666)
+            print(f"Результаты сканирования записаны в {self.scan_results_file}")
+            
+        except Exception as e:
+            print(f"Ошибка записи результатов сканирования: {e}")
     
     def create_command_file(self):
         """Создает файл команд если его нет"""
@@ -85,8 +129,8 @@ class AntennaTracker:
         """Читает RSSI с обеих антенн и применяет фильтр"""
         try:
             # Читаем сырые значения (меняем местами левую и правую)
-            left_raw = self.ads.readADC(0)   # Левая антенна теперь adc0
-            right_raw = self.ads.readADC(1)  # Правая антенна теперь adc1
+            left_raw = self.ads.readADC(1)   # Левая антенна теперь adc1
+            right_raw = self.ads.readADC(0)  # Правая антенна теперь adc0
             
             # Добавляем в буферы
             self.left_rssi_buffer.append(left_raw)
@@ -104,7 +148,7 @@ class AntennaTracker:
     
     def move_servo(self, new_position):
         """Перемещает сервопривод в новую позицию"""
-        # Ограничиваем позицию
+        # Ограничиваем позицию СТРОГО в пределах
         new_position = max(self.left_limit, min(self.right_limit, new_position))
         
         with self.position_lock:
@@ -118,39 +162,67 @@ class AntennaTracker:
     
     def scan_mode(self):
         """Режим сканирования - поиск оптимальной позиции"""
-        print("Начинаем быстрое сканирование...")
+        print("=== НАЧИНАЕМ СКАНИРОВАНИЕ ===")
         
-        scan_data = []  # Список для хранения результатов: [(position, left_rssi, right_rssi, difference), ...]
+        # Устанавливаем флаги
+        self.scan_in_progress = True
+        self.current_mode = self.MODE_SCAN
+        
+        # Очищаем файл результатов
+        if os.path.exists(self.scan_results_file):
+            os.remove(self.scan_results_file)
+        
+        scan_data = []  # Список для хранения результатов
         
         # Сканируем от левого края к правому с шагом 22 единицы (2 градуса)
         current_pos = self.left_limit
+        scan_step = 22  # 2 градуса
+        
+        print(f"Сканирование от {self.left_limit} до {self.right_limit} с шагом {scan_step}")
+        
         while current_pos <= self.right_limit and self.current_mode == self.MODE_SCAN:
+            # СТРОГО проверяем границы
+            if current_pos > self.right_limit:
+                print("Достигнута правая граница, завершаем сканирование")
+                break
+                
             # Перемещаем сервопривод
             self.move_servo(current_pos)
-            time.sleep(0.1)  # Быстрее - ждем только 100мс
+            time.sleep(0.2)  # Ждем стабилизации
             
-            # Читаем RSSI с обеих антенн
-            left_rssi, right_rssi = self.read_rssi()
+            # Читаем RSSI с обеих антенн несколько раз для точности
+            rssi_readings = []
+            for _ in range(3):
+                left_rssi, right_rssi = self.read_rssi()
+                rssi_readings.append((left_rssi, right_rssi))
+                time.sleep(0.05)
             
-            # Вычисляем разность между антеннами
-            difference = abs(left_rssi - right_rssi)
+            # Усредняем показания
+            avg_left = sum(r[0] for r in rssi_readings) / len(rssi_readings)
+            avg_right = sum(r[1] for r in rssi_readings) / len(rssi_readings)
+            difference = abs(avg_left - avg_right)
             
             # Сохраняем результат
-            scan_data.append((current_pos, left_rssi, right_rssi, difference))
+            scan_data.append((current_pos, avg_left, avg_right, difference))
             
-            print(f"Позиция {current_pos}: L={left_rssi:.0f}, R={right_rssi:.0f}, Разность={difference:.0f}")
+            angle_deg = ((current_pos - self.left_limit) / (self.right_limit - self.left_limit)) * 146
+            print(f"Поз {current_pos} ({angle_deg:.1f}°): L={avg_left:.0f}, R={avg_right:.0f}, Разность={difference:.0f}")
             
-            # Записываем статус для веб-интерфейса (для графика)
-            self.write_status(left_rssi, right_rssi)
+            # Записываем статус (БЕЗ динамического графика)
+            self.write_status(avg_left, avg_right)
             
-            # Двигаемся на следующую позицию (2 градуса = 22 единицы)
-            current_pos += 22
+            # Двигаемся на следующую позицию
+            current_pos += scan_step
             
             # Проверяем команды (для возможности остановки)
             self.check_commands()
         
+        # Завершение сканирования
+        print("=== АНАЛИЗ РЕЗУЛЬТАТОВ СКАНИРОВАНИЯ ===")
+        
         if len(scan_data) < 3:
-            print("Недостаточно данных для анализа")
+            print("ОШИБКА: Недостаточно данных для анализа")
+            self.scan_in_progress = False
             self.current_mode = self.MODE_MANUAL
             return
         
@@ -164,20 +236,33 @@ class AntennaTracker:
             # Усредняем разности в окне
             avg_difference = sum(data[3] for data in scan_data[start_idx:end_idx]) / (end_idx - start_idx)
             
-            smoothed_data.append((scan_data[i][0], avg_difference))  # (position, smoothed_difference)
+            smoothed_data.append((scan_data[i][0], avg_difference))
         
         # Находим позицию с минимальной усредненной разностью
         best_position, min_difference = min(smoothed_data, key=lambda x: x[1])
         
-        print(f"Найдена оптимальная позиция: {best_position} (разность: {min_difference:.0f})")
+        best_angle = ((best_position - self.left_limit) / (self.right_limit - self.left_limit)) * 146
+        print(f"НАЙДЕНА ОПТИМАЛЬНАЯ ПОЗИЦИЯ: {best_position} ({best_angle:.1f}°)")
+        print(f"Минимальная разность RSSI: {min_difference:.0f}")
+        
+        # Записываем результаты в файл
+        self.write_scan_results(scan_data, best_position, min_difference)
         
         # Перемещаемся в оптимальную позицию
+        print("Перемещение в оптимальную позицию...")
         self.move_servo(best_position)
         time.sleep(0.5)
         
-        # Переходим в автоматический режим
+        # ЗАВЕРШАЕМ сканирование
+        self.scan_in_progress = False
+        self.current_mode = self.MODE_SCAN_COMPLETE  # Специальное состояние
+        
+        print("=== СКАНИРОВАНИЕ ЗАВЕРШЕНО ===")
+        
+        # Через 2 секунды переходим в автоматический режим
+        time.sleep(2)
         self.current_mode = self.MODE_AUTO
-        print("Сканирование завершено, переход в автоматический режим")
+        print("Переход в автоматический режим")
     
     def auto_mode(self):
         """Автоматический режим слежения"""
@@ -224,22 +309,40 @@ class AntennaTracker:
                     with open(self.command_file, 'w') as f:
                         f.write("")
                     
+                    print(f"Получена команда: {command}")
+                    
                     # Выполняем команду
                     if command == "left":
+                        if self.current_mode == self.MODE_SCAN:
+                            print("Прерывание сканирования для ручного управления")
+                            self.scan_in_progress = False
                         self.current_mode = self.MODE_MANUAL
                         self.manual_move_left()
                     elif command == "right":
+                        if self.current_mode == self.MODE_SCAN:
+                            print("Прерывание сканирования для ручного управления")
+                            self.scan_in_progress = False
                         self.current_mode = self.MODE_MANUAL
                         self.manual_move_right()
                     elif command == "auto":
+                        if self.current_mode == self.MODE_SCAN:
+                            print("Прерывание сканирования для автоматического режима")
+                            self.scan_in_progress = False
                         print("Переход в автоматический режим")
                         self.current_mode = self.MODE_AUTO
                     elif command == "manual":
+                        if self.current_mode == self.MODE_SCAN:
+                            print("Прерывание сканирования")
+                            self.scan_in_progress = False
                         print("Переход в ручной режим")
                         self.current_mode = self.MODE_MANUAL
                     elif command == "scan":
-                        print("Запуск сканирования")
-                        self.current_mode = self.MODE_SCAN
+                        if self.current_mode != self.MODE_SCAN:
+                            print("Запуск сканирования")
+                            # Сканирование выполняется в основном цикле
+                            self.current_mode = self.MODE_SCAN
+                        else:
+                            print("Сканирование уже активно")
                     
         except Exception as e:
             print(f"Ошибка чтения команд: {e}")
@@ -247,10 +350,13 @@ class AntennaTracker:
     def run(self):
         """Основной цикл работы"""
         print("Запуск сервиса слежения антенны")
+        print(f"Начальный режим: {self.current_mode}")
         
         # Устанавливаем начальную позицию
         self.move_servo(self.center_pos)
         time.sleep(1)
+        
+        print("=== АВТОЗАПУСК СКАНИРОВАНИЯ ===")
         
         try:
             while self.running:
@@ -259,9 +365,12 @@ class AntennaTracker:
                 
                 # Выполняем действия в зависимости от режима
                 if self.current_mode == self.MODE_SCAN:
-                    self.scan_mode()
+                    self.scan_mode()  # Выполняет полное сканирование
                 elif self.current_mode == self.MODE_AUTO:
                     self.auto_mode()
+                elif self.current_mode == self.MODE_SCAN_COMPLETE:
+                    # Ничего не делаем, ждем перехода в AUTO
+                    pass
                 else:  # В ручном режиме просто читаем и записываем статус
                     left_rssi, right_rssi = self.read_rssi()
                     self.write_status(left_rssi, right_rssi)
@@ -278,6 +387,7 @@ class AntennaTracker:
     def cleanup(self):
         """Очистка ресурсов"""
         self.running = False
+        self.scan_in_progress = False
         print("Сервис остановлен")
 
 # Функции для внешнего управления (для Flask)
