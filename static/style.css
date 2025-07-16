@@ -72,6 +72,8 @@ body {
     height: 100%;
     background-color: #000;
     object-fit: cover;
+    position: relative;
+    z-index: 1;
 }
 
 .video-controls {
@@ -80,6 +82,7 @@ body {
     right: 1rem;
     display: flex;
     gap: 0.5rem;
+    z-index: 10;
 }
 
 .video-btn {
@@ -90,6 +93,9 @@ body {
     color: #e0e0e0;
     cursor: pointer;
     transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .video-btn:hover {
@@ -97,53 +103,85 @@ body {
     transform: scale(1.05);
 }
 
-/* Antenna Controls in Video */
-.antenna-controls {
+.video-controls .auto-btn {
+    border-color: #00ff88;
+    color: #00ff88;
+    padding: 0.75rem; /* Match other video buttons */
+    border-radius: 50%; /* Match other video buttons */
+}
+
+.video-controls .auto-btn:hover {
+    background: rgba(0, 255, 136, 0.3);
+    box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+}
+
+.video-controls .auto-btn.active {
+    background: rgba(0, 255, 136, 0.4);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+    color: #fff;
+}
+
+/* On-video manual controls */
+.antenna-controls-panel {
     position: absolute;
     bottom: 1rem;
     left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    gap: 1rem;
     z-index: 10;
 }
 
-.antenna-btn {
+.control-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.control-btn {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
     border-radius: 12px;
-    border: 1px solid;
+    border: 1px solid transparent;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.3s ease;
     background: rgba(40, 40, 40, 0.8);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
 }
 
-.antenna-btn.manual-btn {
+.control-btn.manual-btn {
     border-color: #00aaff;
     color: #00aaff;
 }
 
-.antenna-btn.manual-btn:hover {
+.control-btn.manual-btn:hover {
     background: rgba(0, 170, 255, 0.3);
     box-shadow: 0 0 15px rgba(0, 170, 255, 0.3);
 }
 
-.antenna-btn.auto-btn {
+.control-btn.home-btn {
+    padding: 0.75rem;
+    border-radius: 50%;
+    border-color: #e0e0e0;
+    color: #e0e0e0;
+}
+
+.control-btn.home-btn:hover {
+    background: rgba(224, 224, 224, 0.2);
+    box-shadow: 0 0 15px rgba(224, 224, 224, 0.3);
+}
+
+.control-btn.auto-btn {
     border-color: #00ff88;
     color: #00ff88;
 }
 
-.antenna-btn.auto-btn:hover {
+.control-btn.auto-btn:hover {
     background: rgba(0, 255, 136, 0.3);
     box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
 }
 
-.antenna-btn.auto-btn.active {
+.control-btn.auto-btn.active {
     background: rgba(0, 255, 136, 0.4);
     box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
     color: #fff;

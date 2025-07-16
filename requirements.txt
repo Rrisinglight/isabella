@@ -1,7 +1,9 @@
 Flask
 Flask-SocketIO
 requests
-gevent-websocket
+eventlet
+gunicorn
+h11
 pyserial
-smbus2
-RPi.GPIO 
+ADS1x15-ADC
+flask-cors

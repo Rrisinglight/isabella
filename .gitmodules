@@ -1,0 +1,3 @@
+[submodule "python-st3215"]
+	path = python-st3215
+	url = https://github.com/Mickael-Roger/python-st3215.git
