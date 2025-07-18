@@ -37,5 +37,5 @@ def live_stream():
 if __name__ == '__main__':
     print("Запуск веб-сервера FPV Interface...")
     print(f"Видеопоток: {ENCODER_URL}")
-    print("Веб-интерфейс: http://0.0.0.0:5000")
+    print("Веб-интерфейс: http://0.0.0.0:80")
     app.run(host='0.0.0.0', port=5000, debug=False)

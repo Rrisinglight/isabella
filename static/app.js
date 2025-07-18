@@ -417,7 +417,7 @@ class FPVInterface {
     
     togglePlayPause() {
         if (!this.videoPlayer || !this.videoElement) return;
-
+        
         if (this.isPlaying) {
             // Pause playback
             this.videoPlayer.pause();
@@ -431,7 +431,7 @@ class FPVInterface {
                 console.error('Video play error:', err);
             });
         }
-
+        
         // Immediate UI update for better responsiveness
         this.updatePlayButton();
     }

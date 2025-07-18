@@ -1,1 +1,2 @@
-/penv
+penv/
+__pycache__/
