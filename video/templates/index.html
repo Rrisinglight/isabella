@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC-плеер</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h1 {
+            color: #1c1e21;
+            margin-bottom: 20px;
+        }
+        video {
+            border: 1px solid #dddfe2;
+            border-radius: 8px;
+            background-color: #000;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+
+<h1>WebRTC-стрим: mystream</h1>
+<video id="videoelem" autoplay muted controls width="800" height="600"></video>
+
+<script>
+    async function playVideo() {
+        // Создаем RTCPeerConnection
+        const pc = new RTCPeerConnection();
+
+        // Запрашиваем только получение видео и аудио
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        // Когда медиа-треки приходят, назначаем их элементу <video>
+        pc.ontrack = (event) => {
+            const videoElement = document.getElementById('videoelem');
+            if (videoElement) {
+                videoElement.srcObject = event.streams[0];
+            }
+        };
+
+        try {
+            // Создаем SDP offer
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            // Отправляем WHEP-запрос к mediamtx
+            // Используем window.location.hostname, чтобы автоматически определять IP-адрес сервера
+            const response = await fetch(`http://${window.location.hostname}:8889/mystream/whep`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/sdp',
+                },
+                body: offer.sdp,
+            });
+
+            if (response.ok) {
+                // Получаем SDP answer от сервера
+                const answer = await response.text();
+                await pc.setRemoteDescription({
+                    type: 'answer',
+                    sdp: answer,
+                });
+            } else {
+                const errorText = await response.text();
+                console.error('Ошибка при получении ответа от сервера:', response.status, errorText);
+                alert(`Не удалось подключиться к WebRTC-потоку. Статус: ${response.status}. Проверьте консоль для получения дополнительной информации.`);
+            }
+        } catch (e) {
+            console.error('Ошибка при выполнении WHEP-запроса:', e);
+            alert('Произошла ошибка при подключении. Убедитесь, что mediamtx запущен и порт 8889 доступен.');
+        }
+    }
+
+    // Запускаем воспроизведение
+    playVideo();
+</script>
+
+</body>
+</html> 
