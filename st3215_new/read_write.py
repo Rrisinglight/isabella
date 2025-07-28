@@ -3,11 +3,11 @@
 # *********     Gen Write Example      *********
 #
 #
-# Available SCServo model on this example : All models using Protocol SCS
-# This example is tested with a SCServo(STS/SMS/SCS), and an URT
-# Be sure that SCServo(STS/SMS/SCS) properties are already set as %% ID : 1 / Baudnum : 6 (Baudrate : 1000000)
+# Available ST Servo model on this example : All models using Protocol ST
+# This example is tested with a ST Servo(ST3215/ST3020/ST3025), and an URT
 #
 
+import sys
 import os
 
 if os.name == 'nt':
@@ -27,31 +27,21 @@ else:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return ch
 
-from scservo_sdk import *                    # Uses SCServo SDK library
-
-# Control table address
-ADDR_SCS_TORQUE_ENABLE     = 40
-ADDR_SCS_GOAL_ACC          = 41
-ADDR_SCS_GOAL_POSITION     = 42
-ADDR_SCS_GOAL_SPEED        = 46
-ADDR_SCS_PRESENT_POSITION  = 56
+sys.path.append("..")
+from scservo_sdk import *                      # Uses SC Servo SDK library
 
 # Default setting
-SCS_ID                      = 1                 # SCServo ID : 1
-BAUDRATE                    = 115200            # Driver board default baudrate : 115200
+SCS_ID                      = 1                 # SC Servo ID : 1
+BAUDRATE                    = 1000000           # SC Servo default baudrate : 1000000
 DEVICENAME                  = '/dev/ttyUSB0'    # Check which port is being used on your controller
                                                 # ex) Windows: "COM1"   Linux: "/dev/ttyUSB0" Mac: "/dev/tty.usbserial-*"
-
-SCS_MINIMUM_POSITION_VALUE  = 100         # SCServo will rotate between this value
-SCS_MAXIMUM_POSITION_VALUE  = 4000        # and this value (note that the SCServo would not move when the position value is out of movable range. Check e-manual about the range of the SCServo you use.)
-SCS_MOVING_STATUS_THRESHOLD = 20          # SCServo moving status threshold
-SCS_MOVING_SPEED            = 0           # SCServo moving speed
-SCS_MOVING_ACC              = 0           # SCServo moving acc
-protocol_end                = 1           # SCServo bit end(STS/SMS=0, SCS=1)
+SCS_MINIMUM_POSITION_VALUE  = 0           # SC Servo will rotate between this value
+SCS_MAXIMUM_POSITION_VALUE  = 4095
+SCS_MOVING_SPEED            = 2400        # SC Servo moving speed
+SCS_MOVING_ACC              = 50          # SC Servo moving acc
 
 index = 0
 scs_goal_position = [SCS_MINIMUM_POSITION_VALUE, SCS_MAXIMUM_POSITION_VALUE]         # Goal position
-
 
 # Initialize PortHandler instance
 # Set the port path
@@ -60,7 +50,7 @@ portHandler = PortHandler(DEVICENAME)
 
 # Initialize PacketHandler instance
 # Get methods and members of Protocol
-packetHandler = PacketHandler(protocol_end)
+packetHandler = sms_sts(portHandler)
     
 # Open port
 if portHandler.openPort():
@@ -80,59 +70,41 @@ else:
     getch()
     quit()
 
-# Write SCServo acc
-scs_comm_result, scs_error = packetHandler.write1ByteTxRx(portHandler, SCS_ID, ADDR_SCS_GOAL_ACC, SCS_MOVING_ACC)
-if scs_comm_result != COMM_SUCCESS:
-    print("%s" % packetHandler.getTxRxResult(scs_comm_result))
-elif scs_error != 0:
-    print("%s" % packetHandler.getRxPacketError(scs_error))
-
-# Write SCServo speed
-scs_comm_result, scs_error = packetHandler.write2ByteTxRx(portHandler, SCS_ID, ADDR_SCS_GOAL_SPEED, SCS_MOVING_SPEED)
-if scs_comm_result != COMM_SUCCESS:
-    print("%s" % packetHandler.getTxRxResult(scs_comm_result))
-elif scs_error != 0:
-    print("%s" % packetHandler.getRxPacketError(scs_error))
-
 while 1:
     print("Press any key to continue! (or press ESC to quit!)")
     if getch() == chr(0x1b):
         break
 
-    # Write SCServo goal position
-    scs_comm_result, scs_error = packetHandler.write2ByteTxRx(portHandler, SCS_ID, ADDR_SCS_GOAL_POSITION, scs_goal_position[index])
+    # Write SC Servo goal position/moving speed/moving acc
+    scs_comm_result, scs_error = packetHandler.WritePosEx(SCS_ID, scs_goal_position[index], SCS_MOVING_SPEED, SCS_MOVING_ACC)
     if scs_comm_result != COMM_SUCCESS:
         print("%s" % packetHandler.getTxRxResult(scs_comm_result))
     elif scs_error != 0:
         print("%s" % packetHandler.getRxPacketError(scs_error))
 
     while 1:
-        # Read SCServo present position
-        scs_present_position_speed, scs_comm_result, scs_error = packetHandler.read4ByteTxRx(portHandler, SCS_ID, ADDR_SCS_PRESENT_POSITION)
+        # Read SC Servo present position
+        scs_present_position, scs_present_speed, scs_comm_result, scs_error = packetHandler.ReadPosSpeed(SCS_ID)
         if scs_comm_result != COMM_SUCCESS:
             print(packetHandler.getTxRxResult(scs_comm_result))
-        elif scs_error != 0:
+        else:
+            print("[ID:%03d] GoalPos:%d PresPos:%d PresSpd:%d" % (SCS_ID, scs_goal_position[index], scs_present_position, scs_present_speed))
+        if scs_error != 0:
             print(packetHandler.getRxPacketError(scs_error))
 
-        scs_present_position = SCS_LOWORD(scs_present_position_speed)
-        scs_present_speed = SCS_HIWORD(scs_present_position_speed)
-        print("[ID:%03d] GoalPos:%03d PresPos:%03d PresSpd:%03d" 
-              % (SCS_ID, scs_goal_position[index], scs_present_position, SCS_TOHOST(scs_present_speed, 15)))
+        # Read SC Servo moving status
+        moving, scs_comm_result, scs_error = packetHandler.ReadMoving(SCS_ID)
+        if scs_comm_result != COMM_SUCCESS:
+            print(packetHandler.getTxRxResult(scs_comm_result))
 
-        if not (abs(scs_goal_position[index] - scs_present_position_speed) > SCS_MOVING_STATUS_THRESHOLD):
+        if moving==0:
             break
-
 
     # Change goal position
     if index == 0:
         index = 1
     else:
-        index = 0    
+        index = 0
 
-scs_comm_result, scs_error = packetHandler.write1ByteTxRx(portHandler, SCS_ID, ADDR_SCS_TORQUE_ENABLE, 0)
-if scs_comm_result != COMM_SUCCESS:
-    print("%s" % packetHandler.getTxRxResult(scs_comm_result))
-elif scs_error != 0:
-    print("%s" % packetHandler.getRxPacketError(scs_error))
 # Close port
 portHandler.closePort()

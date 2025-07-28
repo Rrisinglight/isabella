@@ -3,8 +3,8 @@
 # *********     Sync Write Example      *********
 #
 #
-# Available ST Servo model on this example : All models using Protocol ST
-# This example is tested with a ST Servo(ST3215/ST3020/ST3025), and an URT
+# Available SC Servo model on this example : All models using Protocol SC
+# This example is tested with a SC Servo(SC15/SC09), and an URT
 #
 
 import sys
@@ -34,10 +34,9 @@ BAUDRATE                    = 1000000           # SC Servo default baudrate : 10
 DEVICENAME                  = '/dev/ttyUSB0'    # Check which port is being used on your controller
                                                 # ex) Windows: "COM1"   Linux: "/dev/ttyUSB0" Mac: "/dev/tty.usbserial-*"
 
-SCS_MINIMUM_POSITION_VALUE  = 0                 # SC Servo will rotate between this value
-SCS_MAXIMUM_POSITION_VALUE  = 4095              
+SCS_MINIMUM_POSITION_VALUE  = 10                # SC Servo will rotate between this value
+SCS_MAXIMUM_POSITION_VALUE  = 1000              
 SCS_MOVING_SPEED            = 2400              # SC Servo moving speed
-SCS_MOVING_ACC              = 50                # SC Servo moving acc
 
 index = 0
 scs_goal_position = [SCS_MINIMUM_POSITION_VALUE, SCS_MAXIMUM_POSITION_VALUE]         # Goal position
@@ -50,7 +49,7 @@ portHandler = PortHandler(DEVICENAME)
 
 # Initialize PacketHandler instance
 # Get methods and members of Protocol
-packetHandler = sms_sts(portHandler)
+packetHandler = scscl(portHandler)
 
 # Open port
 if portHandler.openPort():
@@ -78,7 +77,7 @@ while 1:
 
     for scs_id in range(1, 11):
         # Add SC Servo#1~10 goal position\moving speed\moving accc value to the Syncwrite parameter storage
-        scs_addparam_result = packetHandler.SyncWritePosEx(scs_id, scs_goal_position[index], SCS_MOVING_SPEED, SCS_MOVING_ACC)
+        scs_addparam_result = packetHandler.SyncWritePos(scs_id, scs_goal_position[index], 0, SCS_MOVING_SPEED)
         if scs_addparam_result != True:
             print("[ID:%03d] groupSyncWrite addparam failed" % scs_id)
 

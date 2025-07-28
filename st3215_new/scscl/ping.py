@@ -3,8 +3,8 @@
 # *********     Ping Example      *********
 #
 #
-# Available ST Servo model on this example : All models using Protocol ST
-# This example is tested with a ST Servo(ST3215/ST3020/ST3025), and an URT
+# Available SC Servo model on this example : All models using Protocol SC
+# This example is tested with a SC15/SC09 Servo, and an URT
 #
 
 import sys
@@ -30,9 +30,9 @@ sys.path.append("..")
 from scservo_sdk import *                   # Uses SC Servo SDK library
 
 # Default setting
-SCS_ID                  = 1                 # SCServo ID : 1
-BAUDRATE                = 1000000           # SCServo default baudrate : 1000000
-DEVICENAME              = '/dev/ttyUSB1'    # Check which port is being used on your controller
+SCS_ID                  = 1                 # SC Servo ID : 1
+BAUDRATE                = 1000000           # SC Servo default baudrate : 1000000
+DEVICENAME              = '/dev/ttyUSB0'    # Check which port is being used on your controller
                                             # ex) Windows: "COM1"   Linux: "/dev/ttyUSB0" Mac: "/dev/tty.usbserial-*"
 
 # Initialize PortHandler instance
@@ -42,7 +42,8 @@ portHandler = PortHandler(DEVICENAME)
 
 # Initialize PacketHandler instance
 # Get methods and members of Protocol
-packetHandler = sms_sts(portHandler)
+packetHandler = scscl(portHandler)
+
 # Open port
 if portHandler.openPort():
     print("Succeeded to open the port")
@@ -62,15 +63,16 @@ else:
     getch()
     quit()
 
-# Try to ping the SCServo
-# Get SCServo model number
+# Try to ping the SC Servo
+# Get SC Servo model number
 scs_model_number, scs_comm_result, scs_error = packetHandler.ping(SCS_ID)
 if scs_comm_result != COMM_SUCCESS:
     print("%s" % packetHandler.getTxRxResult(scs_comm_result))
 else:
-    print("[ID:%03d] ping Succeeded. SCServo model number : %d" % (SCS_ID, scs_model_number))
+    print("[ID:%03d] ping Succeeded. SC Servo model number : %d" % (SCS_ID, scs_model_number))
 if scs_error != 0:
     print("%s" % packetHandler.getRxPacketError(scs_error))
 
 # Close port
 portHandler.closePort()
+
