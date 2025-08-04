@@ -16,6 +16,6 @@ ADS1x15-ADC
 #screen
 Pillow
 numpy
-RPi.GPIO
 spidev
+pigpio
 gpiozero

@@ -1,0 +1,17 @@
+[Unit]
+Description=Fan Control Service
+After=multi-user.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/isabella/penv/bin/python3 /home/pi/isabella/fan/fan_control.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

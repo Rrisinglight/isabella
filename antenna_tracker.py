@@ -30,7 +30,7 @@ class Mode(Enum):
 @dataclass
 class ServoConfig:
     """Конфигурация сервопривода"""
-    port: str = '/dev/ttyAMA2'
+    port: str = '/dev/servo'
     id: int = 1
     center_pos: int = 2047
     left_limit: int = 1100

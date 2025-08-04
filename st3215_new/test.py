@@ -14,7 +14,7 @@ from scservo_sdk import *
 # Рабочие параметры (найдены диагностикой)
 SCS_ID = 1
 BAUDRATE = 115200
-DEVICENAME = '/dev/ttyUSB1'
+DEVICENAME = '/dev/servo'
 
 # Параметры движения
 SPEED = 100        # Скорость (0-1023)
