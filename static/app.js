@@ -2,8 +2,8 @@
 
 class FPVInterface {
     constructor() {
-        // API endpoints
-        this.API_BASE = 'http://' + window.location.hostname + ':5001';
+        // API endpoints - теперь все на одном порту
+        this.API_BASE = 'http://' + window.location.hostname + ':' + window.location.port;
         
         // Состояние
         this.isPlaying = false;
@@ -22,6 +22,7 @@ class FPVInterface {
         this.startStatusUpdates();
         
         console.log('FPV Interface initialized');
+        console.log('API Base:', this.API_BASE);
     }
     
     initElements() {

@@ -1,16 +1,39 @@
+#!/usr/bin/env python3
+"""
+FPV Antenna Tracker - Объединенный сервис
+Веб-интерфейс + API управления антенной + видео прокси
+"""
+
 import time
 import threading
 import json
+import sys
+import os
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Tuple, List
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, Response, send_from_directory
 from flask_cors import CORS
-from st3215 import ST3215
+import requests
 import ADS1x15
 
+# Добавляем путь к библиотеке SCServo
+sys.path.append("..")
+from scservo_sdk import *
+
+
+# ============= КОНФИГУРАЦИЯ =============
+
+# URL видеопотока
+ENCODER_URL = "http://192.168.1.106/isabella"
+
+# Порт для веб-сервера
+WEB_PORT = 5000
+
+
+# ============= КЛАССЫ ANTENNA TRACKER =============
 
 class Mode(Enum):
     """Режимы работы трекера"""
@@ -25,15 +48,22 @@ class Mode(Enum):
 class ServoConfig:
     """Конфигурация сервопривода"""
     port: str = '/dev/servo'
+    baudrate: int = 115200
     id: int = 1
     center_pos: int = 2047
     left_limit: int = 1100
     right_limit: int = 2700
-    step_degrees: int = 3  # Шаг в градусах
-    # Преобразование: (2700-1100) = 1600 единиц на 146 градусов
+    # Преобразование: (2700-1100) = 1600 единиц на ~146 градусов
     # 1 градус = ~11 единиц
+    step_degrees: int = 3  # Шаг в градусах для ручного режима
     step_units: int = 33  # 3 градуса * 11 единиц
-    scan_step_units: int = 33  # Шаг сканирования тоже 3 градуса
+    scan_step_units: int = 33  # Шаг сканирования
+    
+    # Параметры движения
+    default_speed: int = 1500  # Скорость по умолчанию
+    default_acc: int = 50  # Ускорение по умолчанию
+    auto_speed: int = 800  # Скорость для авторежима (плавнее)
+    auto_acc: int = 30  # Ускорение для авторежима
 
 
 @dataclass
@@ -60,6 +90,7 @@ class AntennaTracker:
         # Состояние
         self.current_mode = Mode.MANUAL
         self.position = self.servo_config.center_pos
+        self.actual_position = self.servo_config.center_pos
         self.running = True
         
         # Калибровка
@@ -75,8 +106,11 @@ class AntennaTracker:
         self.right_rssi_buffer = deque(maxlen=self.rssi_filter_size)
         
         # Параметры автослежения
-        self.rssi_threshold = 10  # Минимальная разница для движения
-        self.auto_step = self.servo_config.step_units  # Шаг автослежения
+        self.rssi_threshold = 15  # Минимальная разница для движения
+        self.auto_step_small = 11  # Малый шаг (1 градус) для точной подстройки
+        self.auto_step_medium = 22  # Средний шаг (2 градуса)
+        self.auto_step_large = 44  # Большой шаг (4 градуса) для быстрого наведения
+        self.auto_deadband = 5  # Мертвая зона, где движение не требуется
         
         # Данные сканирования
         self.scan_data = []
@@ -89,30 +123,118 @@ class AntennaTracker:
         # Блокировки
         self.position_lock = threading.Lock()
         
+        # Таймер для авторежима
+        self.last_auto_move_time = 0
+        self.auto_move_cooldown = 0.2  # Минимальный интервал между движениями
+        
         print("=== Antenna Tracker инициализирован ===")
-        print(f"Позиция: {self.position} (центр: {self.servo_config.center_pos})")
-        print(f"Лимиты: {self.servo_config.left_limit} - {self.servo_config.right_limit}")
-        print(f"Шаг поворота: {self.servo_config.step_degrees}° ({self.servo_config.step_units} единиц)")
+        self._print_servo_info()
     
     def _init_hardware(self):
         """Инициализация оборудования"""
         try:
-            # Сервопривод
-            self.servo = ST3215(self.servo_config.port)
-            print(f"Сервопривод подключен: {self.servo_config.port}")
+            # Инициализация сервопривода
+            self.portHandler = PortHandler(self.servo_config.port)
+            self.packetHandler = sms_sts(self.portHandler)
             
-            # АЦП
+            # Открытие порта
+            if not self.portHandler.openPort():
+                raise Exception(f"Не удалось открыть порт {self.servo_config.port}")
+            
+            # Установка скорости передачи
+            if not self.portHandler.setBaudRate(self.servo_config.baudrate):
+                raise Exception(f"Не удалось установить скорость {self.servo_config.baudrate}")
+                
+            print(f"✓ Сервопривод подключен: {self.servo_config.port} @ {self.servo_config.baudrate} bps")
+            
+            # Проверка связи с сервоприводом
+            model_number, comm_result, error = self.packetHandler.ping(self.servo_config.id)
+            if comm_result == COMM_SUCCESS:
+                print(f"✓ Сервопривод ID:{self.servo_config.id} найден. Модель: {model_number}")
+            else:
+                raise Exception(f"Сервопривод ID:{self.servo_config.id} не отвечает")
+            
+            # Установка режима позиционирования
+            comm_result, error = self.packetHandler.write1ByteTxRx(
+                self.servo_config.id, SMS_STS_MODE, 0)
+            if comm_result == COMM_SUCCESS:
+                print("✓ Режим позиционирования установлен")
+            
+            # Включение момента
+            comm_result, error = self.packetHandler.write1ByteTxRx(
+                self.servo_config.id, SMS_STS_TORQUE_ENABLE, 1)
+            if comm_result == COMM_SUCCESS:
+                print("✓ Момент включен")
+            
+            # Чтение текущей позиции
+            pos, comm_result, error = self.packetHandler.ReadPos(self.servo_config.id)
+            if comm_result == COMM_SUCCESS:
+                self.position = pos
+                self.actual_position = pos
+                print(f"✓ Текущая позиция: {pos} ({self.position_to_angle(pos)}°)")
+            
+            # Инициализация АЦП
             self.ads = ADS1x15.ADS1115(
                 self.adc_config.bus, 
                 self.adc_config.address
             )
             self.adc_config.gain = self.ads.PGA_2_048V
             self.ads.setGain(self.adc_config.gain)
-            print(f"АЦП подключен: адрес 0x{self.adc_config.address:02X}")
+            print(f"✓ АЦП подключен: адрес 0x{self.adc_config.address:02X}")
             
         except Exception as e:
-            print(f"ОШИБКА инициализации оборудования: {e}")
+            print(f"✗ ОШИБКА инициализации оборудования: {e}")
             raise
+    
+    def _print_servo_info(self):
+        """Вывод информации о конфигурации сервопривода"""
+        print(f"Позиция: {self.position} (центр: {self.servo_config.center_pos})")
+        print(f"Лимиты: {self.servo_config.left_limit} - {self.servo_config.right_limit}")
+        print(f"Диапазон: {self.position_to_angle(self.servo_config.left_limit)}° - "
+              f"{self.position_to_angle(self.servo_config.right_limit)}°")
+        print(f"Шаг ручного режима: {self.servo_config.step_degrees}° ({self.servo_config.step_units} единиц)")
+    
+    def read_servo_status(self) -> dict:
+        """Чтение полного статуса сервопривода"""
+        status = {}
+        
+        try:
+            # Позиция и скорость
+            pos, speed, comm_result, error = self.packetHandler.ReadPosSpeed(self.servo_config.id)
+            if comm_result == COMM_SUCCESS:
+                status['position'] = pos
+                status['angle'] = self.position_to_angle(pos)
+                status['speed'] = speed
+                self.actual_position = pos
+            
+            # Напряжение
+            voltage, comm_result, error = self.packetHandler.read1ByteTxRx(
+                self.servo_config.id, SMS_STS_PRESENT_VOLTAGE)
+            if comm_result == COMM_SUCCESS:
+                status['voltage'] = voltage / 10.0
+            
+            # Температура
+            temp, comm_result, error = self.packetHandler.read1ByteTxRx(
+                self.servo_config.id, SMS_STS_PRESENT_TEMPERATURE)
+            if comm_result == COMM_SUCCESS:
+                status['temperature'] = temp
+            
+            # Ток
+            current, comm_result, error = self.packetHandler.read2ByteTxRx(
+                self.servo_config.id, SMS_STS_PRESENT_CURRENT_L)
+            if comm_result == COMM_SUCCESS:
+                current = self.packetHandler.scs_tohost(current, 15)
+                status['current'] = current
+            
+            # Статус движения
+            moving, comm_result, error = self.packetHandler.ReadMoving(self.servo_config.id)
+            if comm_result == COMM_SUCCESS:
+                status['moving'] = bool(moving)
+            
+        except Exception as e:
+            print(f"Ошибка чтения статуса сервопривода: {e}")
+        
+        return status
     
     def read_rssi(self) -> Tuple[float, float]:
         """Читает RSSI с обеих антенн"""
@@ -141,7 +263,8 @@ class AntennaTracker:
             print(f"Ошибка чтения RSSI: {e}")
             return 0, 0
     
-    def move_servo(self, new_position: int) -> bool:
+    def move_servo(self, new_position: int, speed: Optional[int] = None, 
+                   acc: Optional[int] = None) -> bool:
         """Перемещает сервопривод в новую позицию"""
         # Ограничиваем позицию
         new_position = max(
@@ -149,42 +272,79 @@ class AntennaTracker:
             min(self.servo_config.right_limit, new_position)
         )
         
+        # Используем параметры по умолчанию если не заданы
+        if speed is None:
+            speed = self.servo_config.default_speed
+        if acc is None:
+            acc = self.servo_config.default_acc
+        
         with self.position_lock:
-            if new_position != self.position:
-                try:
-                    self.servo.WritePosition(self.servo_config.id, new_position)
+            if abs(new_position - self.position) < 2:  # Игнорируем микро-движения
+                return True
+                
+            try:
+                comm_result, error = self.packetHandler.WritePosEx(
+                    self.servo_config.id, new_position, speed, acc)
+                
+                if comm_result == COMM_SUCCESS:
                     self.position = new_position
-                    angle = self.position_to_angle(self.position)
-                    print(f"Позиция: {self.position} ({angle}°)")
+                    angle = self.position_to_angle(new_position)
+                    # print(f"→ Позиция: {new_position} ({angle:.1f}°)")
                     return True
-                except Exception as e:
-                    print(f"Ошибка перемещения сервопривода: {e}")
+                else:
+                    print(f"Ошибка перемещения: {self.packetHandler.getTxRxResult(comm_result)}")
                     return False
-        return True
+                    
+            except Exception as e:
+                print(f"Ошибка перемещения сервопривода: {e}")
+                return False
+    
+    def move_to_angle(self, angle_degrees: float) -> bool:
+        """Перемещает сервопривод на заданный угол"""
+        # Преобразуем угол в позицию
+        position = self.angle_to_position(angle_degrees)
+        return self.move_servo(position)
     
     def position_to_angle(self, position: int) -> float:
         """Преобразует позицию сервопривода в угол"""
+        # Диапазон позиций от left_limit до right_limit соответствует углам 0-146 градусов
         range_units = self.servo_config.right_limit - self.servo_config.left_limit
         range_degrees = 146.0
         angle = ((position - self.servo_config.left_limit) / range_units) * range_degrees
         return round(angle, 1)
     
+    def angle_to_position(self, angle_degrees: float) -> int:
+        """Преобразует угол в позицию сервопривода"""
+        # Ограничиваем угол
+        angle_degrees = max(0, min(146, angle_degrees))
+        
+        range_units = self.servo_config.right_limit - self.servo_config.left_limit
+        range_degrees = 146.0
+        position = int(self.servo_config.left_limit + (angle_degrees / range_degrees) * range_units)
+        return position
+    
     def update_status(self, left_rssi: float, right_rssi: float):
         """Обновляет текущий статус"""
+        # Читаем актуальную позицию из сервопривода
+        servo_status = self.read_servo_status()
+        
         self.last_status = {
             "rssi_a": round(left_rssi, 0),
             "rssi_b": round(right_rssi, 0),
-            "angle": self.position,
-            "angle_degrees": self.position_to_angle(self.position),
+            "angle": servo_status.get('position', self.position),
+            "angle_degrees": servo_status.get('angle', self.position_to_angle(self.position)),
             "mode": self.current_mode.value,
             "auto_mode": self.current_mode == Mode.AUTO,
             "scan_in_progress": self.current_mode == Mode.SCAN,
+            "servo_voltage": servo_status.get('voltage', 0),
+            "servo_temperature": servo_status.get('temperature', 0),
+            "servo_moving": servo_status.get('moving', False),
             "timestamp": time.time()
         }
     
-    def process_command(self, command: str) -> bool:
+    def process_command(self, command: str, params: dict = None) -> bool:
         """Обрабатывает команду"""
-        print(f"Команда: {command}")
+        print(f"Команда: {command}, параметры: {params}")
         
         try:
             if command == "left":
@@ -200,6 +360,42 @@ class AntennaTracker:
             elif command == "home":
                 self.current_mode = Mode.MANUAL
                 return self.move_servo(self.servo_config.center_pos)
+                
+            elif command == "set_angle":
+                # Установка конкретного угла
+                if params and 'angle' in params:
+                    self.current_mode = Mode.MANUAL
+                    angle = float(params['angle'])
+                    print(f"Установка угла: {angle}°")
+                    return self.move_to_angle(angle)
+                return False
+                
+            elif command == "set_center":
+                # Установка текущей позиции как центр
+                pos, comm_result, error = self.packetHandler.ReadPos(self.servo_config.id)
+                if comm_result == COMM_SUCCESS:
+                    self.servo_config.center_pos = pos
+                    print(f"Центр установлен: {pos} ({self.position_to_angle(pos)}°)")
+                    return True
+                return False
+                
+            elif command == "set_left_limit":
+                # Установка текущей позиции как левый лимит
+                pos, comm_result, error = self.packetHandler.ReadPos(self.servo_config.id)
+                if comm_result == COMM_SUCCESS:
+                    self.servo_config.left_limit = pos
+                    print(f"Левый лимит установлен: {pos} ({self.position_to_angle(pos)}°)")
+                    return True
+                return False
+                
+            elif command == "set_right_limit":
+                # Установка текущей позиции как правый лимит
+                pos, comm_result, error = self.packetHandler.ReadPos(self.servo_config.id)
+                if comm_result == COMM_SUCCESS:
+                    self.servo_config.right_limit = pos
+                    print(f"Правый лимит установлен: {pos} ({self.position_to_angle(pos)}°)")
+                    return True
+                return False
                 
             elif command == "auto":
                 self.current_mode = Mode.AUTO
@@ -239,10 +435,10 @@ class AntennaTracker:
         print("\n=== НАЧАЛО СКАНИРОВАНИЯ ===")
         self.current_mode = Mode.SCAN
         self.scan_data = []
-        self.last_scan_results = {}  # Очищаем старые результаты
+        self.last_scan_results = {}
         self.scan_position = self.servo_config.left_limit
-        self.move_servo(self.scan_position)
-        time.sleep(0.5)  # Даем время на перемещение
+        self.move_servo(self.scan_position, speed=1000, acc=50)
+        time.sleep(0.5)
     
     def process_scan(self):
         """Выполняет один шаг сканирования"""
@@ -250,6 +446,9 @@ class AntennaTracker:
         if self.scan_position > self.servo_config.right_limit:
             self.finish_scan()
             return
+        
+        # Ждем окончания движения
+        self.wait_for_movement(timeout=0.5)
         
         # Читаем RSSI несколько раз для усреднения
         readings = []
@@ -281,8 +480,7 @@ class AntennaTracker:
         
         # Двигаемся дальше
         self.scan_position += self.servo_config.scan_step_units
-        self.move_servo(self.scan_position)
-        time.sleep(0.1)  # Небольшая пауза между шагами
+        self.move_servo(self.scan_position, speed=1000, acc=50)
     
     def finish_scan(self):
         """Завершает сканирование и анализирует результаты"""
@@ -323,33 +521,72 @@ class AntennaTracker:
         
         # Перемещаемся в лучшую позицию
         print("Перемещение в оптимальную позицию...")
-        self.move_servo(best_position)
-        time.sleep(1)
+        self.move_servo(best_position, speed=1500, acc=50)
+        self.wait_for_movement()
         
         # Переходим в автоматический режим
         self.current_mode = Mode.AUTO
         print("Переход в автоматический режим")
     
     def process_auto_tracking(self):
-        """Автоматическое слежение"""
+        """Автоматическое слежение с плавным движением"""
+        # Проверяем время с последнего движения
+        current_time = time.time()
+        if current_time - self.last_auto_move_time < self.auto_move_cooldown:
+            # Слишком рано для следующего движения
+            left_rssi, right_rssi = self.read_rssi()
+            self.update_status(left_rssi, right_rssi)
+            return
+        
+        # Читаем RSSI
         left_rssi, right_rssi = self.read_rssi()
         self.update_status(left_rssi, right_rssi)
         
+        # Вычисляем разницу
         difference = left_rssi - right_rssi
+        abs_difference = abs(difference)
         
-        # Игнорируем малые различия
-        if abs(difference) < self.rssi_threshold:
+        # Если разница в пределах мертвой зоны - не двигаемся
+        if abs_difference < self.auto_deadband:
             return
+        
+        # Определяем размер шага в зависимости от разницы RSSI
+        if abs_difference < self.rssi_threshold:
+            # Малая разница - не двигаемся
+            return
+        elif abs_difference < self.rssi_threshold * 2:
+            # Средняя разница - малый шаг
+            step = self.auto_step_small
+            speed = self.servo_config.auto_speed
+        elif abs_difference < self.rssi_threshold * 4:
+            # Большая разница - средний шаг
+            step = self.auto_step_medium
+            speed = self.servo_config.auto_speed + 200
+        else:
+            # Очень большая разница - большой шаг
+            step = self.auto_step_large
+            speed = self.servo_config.auto_speed + 400
         
         # Определяем направление
         if difference > 0:
             # Левая сильнее - поворачиваем влево
-            new_position = self.position - self.auto_step
+            new_position = self.position - step
         else:
             # Правая сильнее - поворачиваем вправо
-            new_position = self.position + self.auto_step
+            new_position = self.position + step
         
-        self.move_servo(new_position)
+        # Двигаемся плавно
+        if self.move_servo(new_position, speed=speed, acc=self.servo_config.auto_acc):
+            self.last_auto_move_time = current_time
+    
+    def wait_for_movement(self, timeout: float = 2.0):
+        """Ожидание завершения движения с таймаутом"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            moving, comm_result, error = self.packetHandler.ReadMoving(self.servo_config.id)
+            if comm_result == COMM_SUCCESS and moving == 0:
+                break
+            time.sleep(0.01)
     
     def calibrate_minimum(self):
         """Калибровка минимума (без антенн)"""
@@ -457,8 +694,8 @@ class AntennaTracker:
         print("\n=== ЗАПУСК СЕРВИСА ===")
         
         # Начальная позиция
-        self.move_servo(self.servo_config.center_pos)
-        time.sleep(1)
+        self.move_servo(self.servo_config.center_pos, speed=1500, acc=50)
+        self.wait_for_movement()
         
         # Автоматический запуск сканирования
         print("Автозапуск сканирования...")
@@ -500,6 +737,22 @@ class AntennaTracker:
     def cleanup(self):
         """Очистка ресурсов"""
         self.running = False
+        
+        # Выключаем момент перед закрытием
+        try:
+            self.packetHandler.write1ByteTxRx(
+                self.servo_config.id, SMS_STS_TORQUE_ENABLE, 0)
+            print("✓ Момент выключен")
+        except:
+            pass
+        
+        # Закрываем порт
+        try:
+            self.portHandler.closePort()
+            print("✓ Порт закрыт")
+        except:
+            pass
+        
         print("Сервис остановлен")
     
     def get_status(self) -> dict:
@@ -510,16 +763,51 @@ class AntennaTracker:
         """Возвращает результаты сканирования"""
         if self.last_scan_results.get('scan_complete'):
             results = self.last_scan_results.copy()
-            # НЕ очищаем результаты после чтения, чтобы клиент мог получить их повторно
             return results
         return {}
 
 
-# Flask API
-app = Flask(__name__)
+# ============= FLASK ПРИЛОЖЕНИЕ =============
+
+# Создаем Flask приложение
+app = Flask(__name__, 
+            static_folder='static',
+            template_folder='templates')
 CORS(app)  # Включаем CORS для всех маршрутов
 
+# Глобальная переменная для трекера
 tracker = None
+
+# ======= Веб-интерфейс маршруты =======
+
+@app.route('/')
+def index():
+    """Главная страница"""
+    return render_template('index.html')
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    """Отдача статических файлов"""
+    return send_from_directory('static', filename)
+
+@app.route('/live')
+def live_stream():
+    """Прокси для видеопотока"""
+    def generate():
+        try:
+            r = requests.get(ENCODER_URL, stream=True, timeout=5)
+            r.raise_for_status()
+            for chunk in r.iter_content(chunk_size=4096):
+                yield chunk
+        except Exception as e:
+            print(f"[ERROR] Ошибка видеопотока: {e}")
+            yield b""
+
+    return Response(generate(),
+                   mimetype='video/mp2t',
+                   headers={'Cache-Control': 'no-cache'})
+
+# ======= API маршруты =======
 
 @app.route('/status', methods=['GET'])
 def get_status():
@@ -546,7 +834,8 @@ def send_command():
         return jsonify({"success": False, "error": "No command provided"}), 400
     
     command = data['command']
-    success = tracker.process_command(command)
+    params = data.get('params', {})
+    success = tracker.process_command(command, params)
     
     return jsonify({
         "success": success,
@@ -554,27 +843,44 @@ def send_command():
     })
 
 
+# ============= ТОЧКА ВХОДА =============
+
 def main():
     """Точка входа"""
     global tracker
     
-    print("=== FPV Antenna Tracker ===")
-    print("Инициализация...")
+    print("=" * 50)
+    print("    FPV ANTENNA TRACKER - UNIFIED SERVICE")
+    print("=" * 50)
+    print("\nИнициализация...")
     
     try:
         # Создаем трекер
         tracker = AntennaTracker()
         
-        # Запускаем основной цикл в отдельном потоке
+        # Запускаем основной цикл трекера в отдельном потоке
         tracker_thread = threading.Thread(target=tracker.run, daemon=True)
         tracker_thread.start()
         
-        # Запускаем API сервер
-        print(f"\nAPI сервер: http://0.0.0.0:5001")
-        app.run(host='0.0.0.0', port=5001, debug=False)
+        # Информация о сервисе
+        print(f"\n{'='*50}")
+        print(f"  СЕРВИС ЗАПУЩЕН")
+        print(f"{'='*50}")
+        print(f"\n📡 Веб-интерфейс: http://0.0.0.0:{WEB_PORT}")
+        print(f"📹 Видеопоток: {ENCODER_URL}")
+        print(f"\n🎮 Доступные команды через веб-интерфейс:")
+        print("  • Left/Right - движение на 3°")
+        print("  • Home - возврат в центр")
+        print("  • Auto/Manual - смена режима")
+        print("  • Scan - запуск сканирования")
+        print("  • Calibrate - калибровка минимума/максимума")
+        print(f"\n{'='*50}\n")
+        
+        # Запускаем Flask сервер
+        app.run(host='0.0.0.0', port=WEB_PORT, debug=False)
         
     except Exception as e:
-        print(f"КРИТИЧЕСКАЯ ОШИБКА: {e}")
+        print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
         if tracker:
             tracker.cleanup()
 
