@@ -164,15 +164,15 @@ if __name__ == "__main__":
     
     try:
         # Устанавливаем канал R1 (Raceband канал 1 - 5658MHz)
-        vtx.set_channel('A', 1)
-        time.sleep(4)
+        # vtx.set_channel('A', 1)
+        # time.sleep(4)
         
         # Переключаемся в режим Diversity
         #vtx.switch_to_diversity()
         #time.sleep(1)
         
         # Устанавливаем канал F4 (Fatshark канал 4 - 5800MHz)
-        vtx.set_channel('R', 4)
+        vtx.set_channel('A', 1)
         time.sleep(4)
         
         # Переключаемся обратно в режим Mix

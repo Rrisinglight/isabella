@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-Сервис автоматического слежения антенны за дроном
-Простой, надежный и поддерживаемый код
-"""
-
 import time
 import threading
 import json

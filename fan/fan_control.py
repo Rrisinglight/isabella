@@ -1,20 +1,42 @@
-from gpiozero import PWMLED, Button
+import pigpio
 import time
 import sys
 
-fan = PWMLED(18, frequency=1000)
-tach = Button(23, pull_up=True, bounce_time=0.001)
+# Настройка пинов
+FAN_PIN = 18
+TACH_PIN = 23
+PWM_FREQUENCY = 1000
 
+# Инициализация pigpio
+pi = pigpio.pi()
+if not pi.connected:
+    print("Failed to connect to pigpio daemon", file=sys.stderr)
+    sys.exit(1)
+
+# Настройка ШИМ для вентилятора
+pi.set_PWM_frequency(FAN_PIN, PWM_FREQUENCY)
+pi.set_PWM_range(FAN_PIN, 255)  # Диапазон 0-255
+
+# Настройка пина тахометра с pull-up
+pi.set_mode(TACH_PIN, pigpio.INPUT)
+pi.set_pull_up_down(TACH_PIN, pigpio.PUD_UP)
+
+# Счетчик импульсов
 rpm_count = 0
 
-def pulse_detected():
+def pulse_detected(gpio, level, tick):
+    """Обработчик прерывания для подсчета импульсов тахометра"""
     global rpm_count
-    rpm_count += 1
+    if level == 0:  # Фронт спада (when_pressed в gpiozero)
+        rpm_count += 1
 
-tach.when_pressed = pulse_detected
+# Настройка callback для обнаружения импульсов
+# FALLING_EDGE эквивалентно when_pressed в gpiozero
+cb = pi.callback(TACH_PIN, pigpio.FALLING_EDGE, pulse_detected)
 
 try:
     while True:
+        # Чтение температуры
         with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
             temp = int(f.read()) / 1000
 
@@ -27,7 +49,9 @@ try:
             # Линейная интерполяция: y = 30 + (temp - 30) * (70 / 45)
             speed = 30 + (temp - 30) * (70 / 45)
 
-        fan.value = speed / 100.0
+        # Установка скорости вентилятора (0-255 для pigpio)
+        duty_cycle = int(speed * 255 / 100)
+        pi.set_PWM_dutycycle(FAN_PIN, duty_cycle)
 
         # Измерение RPM за 3 секунды
         rpm_count = 0
@@ -45,5 +69,7 @@ try:
 except KeyboardInterrupt:
     pass
 finally:
-    fan.close()
-    tach.close()
+    # Очистка ресурсов
+    cb.cancel()  # Отключение callback
+    pi.set_PWM_dutycycle(FAN_PIN, 0)  # Остановка вентилятора
+    pi.stop()  # Закрытие соединения с pigpio
