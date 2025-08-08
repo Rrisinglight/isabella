@@ -176,28 +176,144 @@ class FPVInterface {
     }
     
     initVideo() {
-        if (typeof mpegts !== 'undefined' && mpegts.isSupported()) {
-            const player = mpegts.createPlayer({
-                type: 'mse',
-                isLive: true,
-                url: '/live'
-            });
-            
-            player.attachMediaElement(this.videoElement);
-            player.load();
-            this.videoPlayer = player;
-            
-            // Пробуем автовоспроизведение
-            player.play().then(() => {
+        // Поднимаем WebRTC (WHEP) плеер для MediaMTX
+        this.webrtc = {
+            pc: null,
+            started: false
+        };
+
+        // Автовоспроизведение при загрузке
+        this.startWebRTC().catch((err) => {
+            console.error('WebRTC start error:', err);
+            this.isPlaying = false;
+            this.updatePlayButton();
+        });
+    }
+
+    buildWhepUrl() {
+        // Прокси на том же origin, формат пути как в примере: /<path>/whep
+        return `${window.location.origin}/mystream/whep`;
+    }
+
+    async startWebRTC() {
+        // Если уже запущено — ничего не делаем
+        if (this.webrtc && this.webrtc.started) return;
+
+        // Создаем RTCPeerConnection
+        const pc = new RTCPeerConnection({
+            // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        // Примем и установим медиапоток на <video>
+        pc.ontrack = (event) => {
+            if (this.videoElement.srcObject !== event.streams[0]) {
+                this.videoElement.srcObject = event.streams[0];
+            }
+        };
+
+        pc.onconnectionstatechange = () => {
+            const state = pc.connectionState;
+            if (state === 'connected') {
                 this.isPlaying = true;
                 this.updatePlayButton();
-                console.log('Video started playing');
-            }).catch((err) => {
-                console.log('Video autoplay blocked:', err);
+            } else if (state === 'failed' || state === 'disconnected' || state === 'closed') {
                 this.isPlaying = false;
                 this.updatePlayButton();
+            }
+        };
+
+        // Запрашиваем только прием потоков
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // Дожидаемся завершения ICE-гатеринга перед отправкой (non-trickle)
+        await new Promise((resolve) => {
+            if (pc.iceGatheringState === 'complete') {
+                resolve();
+            } else {
+                const check = () => {
+                    if (pc.iceGatheringState === 'complete') {
+                        pc.removeEventListener('icegatheringstatechange', check);
+                        resolve();
+                    }
+                };
+                pc.addEventListener('icegatheringstatechange', check);
+                setTimeout(() => {
+                    pc.removeEventListener('icegatheringstatechange', check);
+                    resolve();
+                }, 1500);
+            }
+        });
+
+        const whepUrl = this.buildWhepUrl();
+
+        // Основной путь: WHEP application/sdp
+        let ok = false;
+        try {
+            const resp = await fetch(whepUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/sdp',
+                    'Accept': 'application/sdp'
+                },
+                body: pc.localDescription && pc.localDescription.sdp ? pc.localDescription.sdp : offer.sdp
             });
+
+            if (!resp.ok) throw new Error(`WHEP POST failed: ${resp.status}`);
+            const answerSdp = await resp.text();
+            await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+            ok = true;
+        } catch (e) {
+            console.warn('WHEP application/sdp failed, trying legacy form body...', e);
         }
+
+        // Резервный путь: form POST data=btoa(sdp)
+        if (!ok) {
+            const resp = await fetch(whepUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ data: btoa(offer.sdp) })
+            });
+            if (!resp.ok) throw new Error(`Legacy WHEP POST failed: ${resp.status}`);
+            const answerText = await resp.text();
+            const answerSdp = atob(answerText);
+            await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+        }
+
+        // Пытаемся запустить воспроизведение
+        try {
+            await this.videoElement.play();
+        } catch (err) {
+            console.log('Autoplay blocked, waiting for user gesture');
+        }
+
+        this.webrtc.pc = pc;
+        this.webrtc.started = true;
+        this.isPlaying = true;
+        this.updatePlayButton();
+        console.log('WebRTC started');
+    }
+
+    async stopWebRTC() {
+        if (!this.webrtc || !this.webrtc.started) return;
+        try {
+            if (this.webrtc.pc) {
+                this.webrtc.pc.getSenders().forEach(s => { try { s.track && s.track.stop(); } catch (_) {} });
+                this.webrtc.pc.getReceivers().forEach(r => { try { r.track && r.track.stop(); } catch (_) {} });
+                this.webrtc.pc.close();
+            }
+        } catch (e) {
+            console.warn('Error stopping WebRTC:', e);
+        }
+        this.webrtc.pc = null;
+        this.webrtc.started = false;
+        if (this.videoElement) this.videoElement.srcObject = null;
+        this.isPlaying = false;
+        this.updatePlayButton();
+        console.log('WebRTC stopped');
     }
     
     async sendCommand(command) {
@@ -417,23 +533,18 @@ class FPVInterface {
     }
     
     togglePlayPause() {
-        if (!this.videoPlayer || !this.videoElement) return;
-        
+        if (!this.videoElement) return;
+
         if (this.isPlaying) {
-            // Pause playback
-            this.videoPlayer.pause();
-            this.isPlaying = false;
+            // Остановить WebRTC
+            this.stopWebRTC();
         } else {
-            // Attempt to start playback
-            this.videoPlayer.play().then(() => {
-                this.isPlaying = true;
-                this.updatePlayButton(); // Update icon after successful play
-            }).catch((err) => {
+            // Запустить WebRTC
+            this.startWebRTC().catch((err) => {
                 console.error('Video play error:', err);
             });
         }
-        
-        // Immediate UI update for better responsiveness
+        // Мгновенное обновление UI
         this.updatePlayButton();
     }
     

@@ -834,7 +834,11 @@ def whep_proxy(path_name: str):
             headers['Content-Type'] = 'application/sdp'
             data = sdp
 
+        print(f"[WHEP] proxy (prefix) -> {mediamtx_url}, ct={headers.get('Content-Type')}, bytes={len(data) if hasattr(data, '__len__') else 'unknown'}")
+        # Явно укажем Accept
+        headers['Accept'] = 'application/sdp'
         r = requests.post(mediamtx_url, headers=headers, data=data, timeout=10)
+        print(f"[WHEP] proxy (prefix) <- status={r.status_code}, ct={r.headers.get('Content-Type')}")
         resp = Response(r.content, status=r.status_code)
         # Если MediaMTX вернул SDP, передаем соответствующий тип
         resp.headers['Content-Type'] = r.headers.get('Content-Type', 'application/sdp')
@@ -862,7 +866,10 @@ def whep_proxy_suffix(path_name: str):
                 sdp = ''
             headers['Content-Type'] = 'application/sdp'
             data = sdp
+        print(f"[WHEP] proxy (suffix) -> {mediamtx_url}, ct={headers.get('Content-Type')}, bytes={len(data) if hasattr(data, '__len__') else 'unknown'}")
+        headers['Accept'] = 'application/sdp'
         r = requests.post(mediamtx_url, headers=headers, data=data, timeout=10)
+        print(f"[WHEP] proxy (suffix) <- status={r.status_code}, ct={r.headers.get('Content-Type')}")
         resp = Response(r.content, status=r.status_code)
         resp.headers['Content-Type'] = r.headers.get('Content-Type', 'application/sdp')
         return resp
