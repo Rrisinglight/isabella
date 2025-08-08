@@ -17,6 +17,7 @@ from typing import Optional, Tuple, List
 from flask import Flask, request, jsonify, render_template, Response, send_from_directory
 from flask_cors import CORS
 import requests
+import base64
 import ADS1x15
 
 # Добавляем путь к библиотеке SCServo
@@ -806,6 +807,68 @@ def live_stream():
     return Response(generate(),
                    mimetype='video/mp2t',
                    headers={'Cache-Control': 'no-cache'})
+
+@app.route('/whep/<path_name>', methods=['POST'])
+def whep_proxy(path_name: str):
+    """Прозрачный прокси для WHEP (WebRTC Receive), чтобы избежать CORS."""
+    try:
+        # MediaMTX слушает на 8889 согласно логам
+        mediamtx_url = f"http://127.0.0.1:8889/whep/{path_name}"
+
+        # Поддерживаем два варианта: application/sdp и urlencoded (legacy)
+        content_type = request.headers.get('Content-Type', '')
+
+        headers = {}
+        data = None
+
+        if 'application/sdp' in content_type:
+            headers['Content-Type'] = 'application/sdp'
+            data = request.data
+        else:
+            # Ожидаем поле data (base64 sdp)
+            b64 = request.form.get('data', '')
+            try:
+                sdp = base64.b64decode(b64).decode('utf-8') if b64 else ''
+            except Exception:
+                sdp = ''
+            headers['Content-Type'] = 'application/sdp'
+            data = sdp
+
+        r = requests.post(mediamtx_url, headers=headers, data=data, timeout=10)
+        resp = Response(r.content, status=r.status_code)
+        # Если MediaMTX вернул SDP, передаем соответствующий тип
+        resp.headers['Content-Type'] = r.headers.get('Content-Type', 'application/sdp')
+        return resp
+    except Exception as e:
+        print(f"[ERROR] WHEP proxy error: {e}")
+        return Response("", status=502)
+
+@app.route('/<path_name>/whep', methods=['POST'])
+def whep_proxy_suffix(path_name: str):
+    """Альтернативный путь прокси: /<path>/whep -> MediaMTX /<path>/whep"""
+    try:
+        mediamtx_url = f"http://127.0.0.1:8889/{path_name}/whep"
+        content_type = request.headers.get('Content-Type', '')
+        headers = {}
+        data = None
+        if 'application/sdp' in content_type:
+            headers['Content-Type'] = 'application/sdp'
+            data = request.data
+        else:
+            b64 = request.form.get('data', '')
+            try:
+                sdp = base64.b64decode(b64).decode('utf-8') if b64 else ''
+            except Exception:
+                sdp = ''
+            headers['Content-Type'] = 'application/sdp'
+            data = sdp
+        r = requests.post(mediamtx_url, headers=headers, data=data, timeout=10)
+        resp = Response(r.content, status=r.status_code)
+        resp.headers['Content-Type'] = r.headers.get('Content-Type', 'application/sdp')
+        return resp
+    except Exception as e:
+        print(f"[ERROR] WHEP proxy (suffix) error: {e}")
+        return Response("", status=502)
 
 # ======= API маршруты =======
 
