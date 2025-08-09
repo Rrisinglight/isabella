@@ -4,7 +4,7 @@ import RPi.GPIO as GPIO
 import time
 
 class SkyzoneVTX:
-    def __init__(self, clk_pin=11, mosi_pin=10, cs_pin=8):
+    def __init__(self, clk_pin=27, mosi_pin=17, cs_pin=22):
         """
         Инициализация VTX Skyzone X
         
@@ -180,7 +180,7 @@ if __name__ == "__main__":
         #time.sleep(1)
         
         # Быстрое сканирование всех каналов
-        # vtx.band_scan(delay=0.2)
+        #vtx.band_scan(delay=2   )
         
     except KeyboardInterrupt:
         print("\nПрерывание пользователем")
