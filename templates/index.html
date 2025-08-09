@@ -149,10 +149,30 @@
         <!-- Frequency Info -->
         <div class="frequency-display liquid-glass">
             <h3 class="section-title neon-text">Current Channel</h3>
-            <p class="frequency-text">5885 <span class="frequency-unit">MHz</span></p>
+            <p class="frequency-text"><span id="currentFreq">-</span> <span class="frequency-unit">MHz</span></p>
             <div class="frequency-details">
-                <span>Band: B / CH: 6</span>
-                <span>Power: 25mW</span>
+                <span id="currentBandChannel">Band: - / CH: -</span>
+            </div>
+
+            <!-- Controls -->
+            <div class="freq-controls">
+                <div class="freq-selects">
+                    <select id="bandSelect" class="select-control" aria-label="Band select">
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="E">E</option>
+                        <option value="F">F</option>
+                        <option value="R">R</option>
+                        <option value="L">L</option>
+                    </select>
+                    <select id="channelSelect" class="select-control" aria-label="Channel select">
+                        <!-- Filled dynamically with CH and frequencies -->
+                    </select>
+                </div>
+                <button id="setFreqBtn" class="scan-btn" type="button">
+                    <span class="material-icons">settings_input_antenna</span>
+                    <span>Set</span>
+                </button>
             </div>
         </div>
 

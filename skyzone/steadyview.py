@@ -55,9 +55,9 @@ class VideoMode:
 class SteadyViewController:
     def __init__(
         self,
-        clk_pin: int = 11,
-        mosi_pin: int = 10,
-        cs_pin: int = 8,
+        clk_pin: int = 27,
+        mosi_pin: int = 17,
+        cs_pin: int = 22,
         bit_bang_freq_hz: int = BIT_BANG_FREQ_HZ,
         pigpio_host: Optional[str] = None,
         pigpio_port: Optional[int] = None,

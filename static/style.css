@@ -305,6 +305,28 @@ body {
     color: #888;
 }
 
+/* Frequency controls */
+.freq-controls {
+    margin-top: 0.75rem;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    align-items: center;
+}
+
+.freq-selects {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.select-control {
+    background: rgba(40, 40, 40, 0.6);
+    color: #e0e0e0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+}
+
 /* Scan Section */
 .scan-section {
     padding: 1rem;

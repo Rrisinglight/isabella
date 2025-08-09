@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FPV Antenna Tracker - Объединенный сервис
+FPV Antenna Tracker
 Веб-интерфейс + API управления антенной + видео прокси
 """
 
@@ -19,6 +19,7 @@ from flask_cors import CORS
 import requests
 import base64
 import ADS1x15
+from vtx_service import VtxService
 
 # Добавляем путь к библиотеке SCServo
 sys.path.append("..")
@@ -93,6 +94,9 @@ class AntennaTracker:
         self.position = self.servo_config.center_pos
         self.actual_position = self.servo_config.center_pos
         self.running = True
+
+        # VTX service (lazy init)
+        self.vtx_service = VtxService()
         
         # Калибровка
         self.rssi_offset = 0  # Смещение для выравнивания каналов
@@ -182,6 +186,8 @@ class AntennaTracker:
             self.adc_config.gain = self.ads.PGA_2_048V
             self.ads.setGain(self.adc_config.gain)
             print(f"✓ АЦП подключен: адрес 0x{self.adc_config.address:02X}")
+
+            # VTX инициализируется лениво в сервисе
             
         except Exception as e:
             print(f"✗ ОШИБКА инициализации оборудования: {e}")
@@ -342,6 +348,13 @@ class AntennaTracker:
             "servo_moving": servo_status.get('moving', False),
             "timestamp": time.time()
         }
+
+        # Добавляем VTX статус
+        # Добавляем VTX статус (даже если еще не инициализирован)
+        try:
+            self.last_status["vtx"] = self.vtx_service.get_status()
+        except Exception as _:
+            pass
     
     def process_command(self, command: str, params: dict = None) -> bool:
         """Обрабатывает команду"""
@@ -430,6 +443,10 @@ class AntennaTracker:
         except Exception as e:
             print(f"Ошибка выполнения команды: {e}")
             return False
+
+    def _get_frequency_mhz(self, band: str, channel: int) -> int:
+        # Keep for compatibility where used elsewhere if any
+        return self.vtx_service._get_frequency_mhz(band, channel)
     
     def start_scan(self):
         """Начинает сканирование"""
@@ -911,6 +928,32 @@ def send_command():
         "success": success,
         "command_executed": command
     })
+
+
+@app.route('/vtx', methods=['GET', 'POST'])
+def vtx_endpoint():
+    """Получить/установить частоту VTX"""
+    if not tracker:
+        return jsonify({"success": False, "error": "Tracker not initialized"}), 500
+
+    # GET: вернуть текущее состояние
+    if request.method == 'GET':
+        return jsonify({"success": True, "vtx": tracker.vtx_service.get_status()})
+
+    # POST: установить новую частоту
+    data = request.get_json(force=True, silent=True) or {}
+    cur = tracker.vtx_service.get_status()
+    band = str(data.get('band', cur.get('band', 'A'))).upper()
+    channel = int(data.get('channel', cur.get('channel', 1)))
+
+    if band not in ['A','B','E','F','R','L'] or channel < 1 or channel > 8:
+        return jsonify({"success": False, "error": "Invalid band/channel"}), 400
+
+    try:
+        tracker.vtx_service.set_band_channel(band, channel)
+        return jsonify({"success": True, "vtx": tracker.vtx_service.get_status()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============= ТОЧКА ВХОДА =============

@@ -17,6 +17,9 @@ class FPVInterface {
         this.initMap();
         this.initEventHandlers();
         this.initVideo();
+        this.initVtxControls();
+        this.vtxEditing = false;
+        this.vtxEditingResetTimer = null;
         
         // Начинаем обновление статуса
         this.startStatusUpdates();
@@ -45,6 +48,13 @@ class FPVInterface {
         this.playPauseBtn = document.getElementById('playPauseBtn');
         this.fullscreenBtn = document.getElementById('fullscreenBtn');
         this.videoElement = document.getElementById('videoElement');
+
+        // VTX controls
+        this.bandSelect = document.getElementById('bandSelect');
+        this.channelSelect = document.getElementById('channelSelect');
+        this.setFreqBtn = document.getElementById('setFreqBtn');
+        this.currentFreqEl = document.getElementById('currentFreq');
+        this.currentBandChannelEl = document.getElementById('currentBandChannel');
         
         // Статус сканирования
         this.scanStatus = document.getElementById('scanStatus');
@@ -173,6 +183,76 @@ class FPVInterface {
         // Видео кнопки
         this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
         this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+
+        // VTX controls
+        this.bandSelect.addEventListener('change', () => {
+            this.startVtxEditing();
+            this.populateChannelOptions();
+            this.scheduleVtxEditingReset();
+        });
+        this.channelSelect.addEventListener('change', () => {
+            this.startVtxEditing();
+            this.scheduleVtxEditingReset();
+        });
+
+        // Mark editing on user interactions to prevent polling from overriding
+        ['focus', 'mousedown', 'input'].forEach(ev => {
+            this.bandSelect.addEventListener(ev, () => this.startVtxEditing());
+            this.channelSelect.addEventListener(ev, () => this.startVtxEditing());
+        });
+
+        this.setFreqBtn.addEventListener('click', () => this.applySelectedVtx());
+    }
+
+    initVtxControls() {
+        // Frequency table
+        this.freqTable = {
+            A: [5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725],
+            B: [5733, 5752, 5771, 5790, 5809, 5828, 5847, 5866],
+            E: [5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945],
+            F: [5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880],
+            R: [5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917],
+            L: [5362, 5399, 5436, 5473, 5510, 5547, 5584, 5621]
+        };
+
+        // Populate default
+        this.populateChannelOptions();
+    }
+
+    populateChannelOptions() {
+        const band = this.bandSelect.value;
+        const freqs = this.freqTable[band] || [];
+        this.channelSelect.innerHTML = '';
+        freqs.forEach((mhz, idx) => {
+            const opt = document.createElement('option');
+            opt.value = String(idx + 1);
+            opt.textContent = `CH ${idx + 1} — ${mhz} MHz`;
+            this.channelSelect.appendChild(opt);
+        });
+    }
+
+    async applySelectedVtx() {
+        const band = this.bandSelect.value;
+        const channel = parseInt(this.channelSelect.value || '1', 10);
+        try {
+            const resp = await fetch(`${this.API_BASE}/vtx`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ band, channel })
+            });
+            if (!resp.ok) throw new Error(`VTX set failed: ${resp.status}`);
+            const data = await resp.json();
+            if (data.success) {
+                this.updateVtxUI(data.vtx || {});
+                this.vtxEditing = false;
+                if (this.vtxEditingResetTimer) {
+                    clearTimeout(this.vtxEditingResetTimer);
+                    this.vtxEditingResetTimer = null;
+                }
+            }
+        } catch (e) {
+            console.error('Error setting VTX:', e);
+        }
     }
     
     initVideo() {
@@ -378,6 +458,11 @@ class FPVInterface {
         const angle = status.angle_degrees || 0;
         this.angle.textContent = `${angle}°`;
         
+        // VTX info
+        if (status.vtx) {
+            this.updateVtxUI(status.vtx);
+        }
+
         // Обновляем состояние кнопок и статус
         const mode = status.mode || 'manual';
         
@@ -424,6 +509,40 @@ class FPVInterface {
                 this.calibrateBtn.querySelector('span:last-child').textContent = 'Calibrate';
             }
         }
+    }
+
+    updateVtxUI(vtx) {
+        const mhz = vtx.frequency_mhz || vtx.frequency || null;
+        const band = vtx.band || '-';
+        const ch = vtx.channel || '-';
+        if (mhz) this.currentFreqEl.textContent = mhz;
+        this.currentBandChannelEl.textContent = `Band: ${band} / CH: ${ch}`;
+        // Avoid overriding user's selection while editing
+        if (!this.vtxEditing) {
+            if (this.bandSelect && typeof band === 'string' && this.bandSelect.value !== band) {
+                this.bandSelect.value = band;
+                this.populateChannelOptions();
+            }
+            if (this.channelSelect && (typeof ch === 'number' || (typeof ch === 'string' && ch !== '-'))) {
+                this.channelSelect.value = String(ch);
+            }
+        }
+    }
+
+    startVtxEditing() {
+        this.vtxEditing = true;
+        if (this.vtxEditingResetTimer) {
+            clearTimeout(this.vtxEditingResetTimer);
+            this.vtxEditingResetTimer = null;
+        }
+    }
+
+    scheduleVtxEditingReset() {
+        if (this.vtxEditingResetTimer) clearTimeout(this.vtxEditingResetTimer);
+        this.vtxEditingResetTimer = setTimeout(() => {
+            this.vtxEditing = false;
+            this.vtxEditingResetTimer = null;
+        }, 1500);
     }
     
     updateConnectionStatus(status) {

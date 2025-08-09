@@ -9,9 +9,9 @@ class SkyzoneVTX:
         Инициализация VTX Skyzone X
         
         Args:
-            clk_pin: GPIO пин для CLK (по умолчанию 11)
-            mosi_pin: GPIO пин для MOSI/DAT (по умолчанию 10)
-            cs_pin: GPIO пин для CS (по умолчанию 8)
+            clk_pin: GPIO пин для CLK (по умолчанию 27)
+            mosi_pin: GPIO пин для MOSI/DAT (по умолчанию 17)
+            cs_pin: GPIO пин для CS (по умолчанию 22)
         """
         self.clk_pin = clk_pin
         self.mosi_pin = mosi_pin
@@ -172,7 +172,7 @@ if __name__ == "__main__":
         #time.sleep(1)
         
         # Устанавливаем канал F4 (Fatshark канал 4 - 5800MHz)
-        vtx.set_channel('A', 1)
+        vtx.set_channel('B', 1)
         time.sleep(4)
         
         # Переключаемся обратно в режим Mix
