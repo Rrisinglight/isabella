@@ -134,6 +134,15 @@ class AntennaTracker:
         
         print("=== Antenna Tracker инициализирован ===")
         self._print_servo_info()
+
+        # ========== VTX SCAN STATE ==========
+        self.vtx_scan_in_progress = False
+        self.vtx_scan_lock = threading.Lock()
+        self.vtx_scan_thread: Optional[threading.Thread] = None
+        self.vtx_scan_current = { 'band': None, 'channel': None }
+        # grid: {band: [rssi_total for ch1..8]}
+        self.vtx_scan_grid = { b: [None]*8 for b in ['A','B','E','F','R','L'] }
+        self.vtx_scan_best = { 'band': None, 'channel': None, 'rssi': None }
     
     def _init_hardware(self):
         """Инициализация оборудования"""
@@ -772,6 +781,74 @@ class AntennaTracker:
             pass
         
         print("Сервис остановлен")
+
+    # ================= VTX SCAN =================
+    def start_vtx_scan(self, settle_ms: int = 200):
+        """Старт сканирования по всем частотам VTX (не блокирующий)."""
+        with self.vtx_scan_lock:
+            if self.vtx_scan_in_progress:
+                return False
+            self.vtx_scan_in_progress = True
+            self.vtx_scan_current = { 'band': None, 'channel': None }
+            self.vtx_scan_grid = { b: [None]*8 for b in ['A','B','E','F','R','L'] }
+            self.vtx_scan_best = { 'band': None, 'channel': None, 'rssi': None }
+
+        def _worker():
+            try:
+                order = ['A','B','E','F','R','L']
+                for band in order:
+                    for ch in range(1, 9):
+                        # Обновляем текущую клетку
+                        with self.vtx_scan_lock:
+                            self.vtx_scan_current = { 'band': band, 'channel': ch }
+                        # Устанавливаем частоту
+                        try:
+                            self.vtx_service.set_band_channel(band, ch)
+                        except Exception as e:
+                            print(f"[VTX-SCAN] set_channel error: {e}")
+                            # Прерываем сканирование при ошибке
+                            with self.vtx_scan_lock:
+                                self.vtx_scan_in_progress = False
+                            return
+
+                        # Ждём стабилизации приёмника
+                        time.sleep(settle_ms / 1000.0)
+
+                        # Читаем RSSI (сумма A+B)
+                        left, right = self.read_rssi()
+                        total = (left or 0) + (right or 0)
+                        with self.vtx_scan_lock:
+                            self.vtx_scan_grid[band][ch-1] = total
+                            # Обновляем best
+                            if self.vtx_scan_best['rssi'] is None or total > self.vtx_scan_best['rssi']:
+                                self.vtx_scan_best = { 'band': band, 'channel': ch, 'rssi': total }
+
+                # После полного прохода — переключаемся на лучшую частоту
+                with self.vtx_scan_lock:
+                    best = self.vtx_scan_best.copy()
+                if best['band'] and best['channel']:
+                    try:
+                        self.vtx_service.set_band_channel(best['band'], best['channel'])
+                        print(f"[VTX-SCAN] Переключено на лучшую: {best['band']}{best['channel']} RSSI={best['rssi']:.0f}")
+                    except Exception as e:
+                        print(f"[VTX-SCAN] failed to set best channel: {e}")
+            finally:
+                with self.vtx_scan_lock:
+                    self.vtx_scan_in_progress = False
+
+        # Запускаем поток
+        self.vtx_scan_thread = threading.Thread(target=_worker, daemon=True)
+        self.vtx_scan_thread.start()
+        return True
+
+    def get_vtx_scan_status(self) -> dict:
+        with self.vtx_scan_lock:
+            return {
+                'in_progress': self.vtx_scan_in_progress,
+                'current': self.vtx_scan_current.copy(),
+                'grid': { b: self.vtx_scan_grid[b][:] for b in self.vtx_scan_grid },
+                'best': self.vtx_scan_best.copy()
+            }
     
     def get_status(self) -> dict:
         """Возвращает текущий статус"""
