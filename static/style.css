@@ -424,6 +424,44 @@ body {
     color: #888;
 }
 
+/* VTX frequency grid (compact) */
+.vtx-grid {
+    margin-top: 0.75rem;
+    overflow-x: auto;
+}
+
+.vtx-grid table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+}
+
+.vtx-grid th, .vtx-grid td {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.35rem 0.4rem;
+    text-align: center;
+}
+
+.vtx-grid th {
+    color: #00aaff;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.vtx-grid .cell {
+    background: rgba(40, 40, 40, 0.5);
+    color: #ddd;
+}
+
+.vtx-grid .cell.active {
+    background: rgba(0, 170, 255, 0.25);
+    box-shadow: inset 0 0 0 2px rgba(0, 170, 255, 0.6);
+    color: #fff;
+}
+
+.vtx-grid .cell.done {
+    background: rgba(60, 60, 60, 0.5);
+}
+
 .scan-status-label {
     margin: 0 0 0.5rem 0;
 }

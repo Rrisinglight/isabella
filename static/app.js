@@ -44,6 +44,9 @@ class FPVInterface {
         this.scanBtn = document.getElementById('scanBtn');
         this.calibrateBtn = document.getElementById('calibrateBtn');
         
+        // Video scan
+        this.videoScanBtn = document.getElementById('videoScanBtn');
+
         // Видео
         this.playPauseBtn = document.getElementById('playPauseBtn');
         this.fullscreenBtn = document.getElementById('fullscreenBtn');
@@ -202,6 +205,9 @@ class FPVInterface {
         });
 
         this.setFreqBtn.addEventListener('click', () => this.applySelectedVtx());
+
+        // Video scan button
+        this.videoScanBtn.addEventListener('click', () => this.startVideoScan());
     }
 
     initVtxControls() {
@@ -217,6 +223,50 @@ class FPVInterface {
 
         // Populate default
         this.populateChannelOptions();
+
+        // Build VTX grid structure
+        this.buildVtxGrid();
+    }
+
+    buildVtxGrid() {
+        const container = document.getElementById('vtxGrid');
+        if (!container) return;
+        const bands = ['A','B','E','F','R','L'];
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        const th0 = document.createElement('th');
+        th0.textContent = 'BAND/CH';
+        headRow.appendChild(th0);
+        for (let i = 1; i <= 8; i++) {
+            const th = document.createElement('th');
+            th.textContent = `CH ${i}`;
+            headRow.appendChild(th);
+        }
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        bands.forEach((b) => {
+            const row = document.createElement('tr');
+            const bandCell = document.createElement('th');
+            bandCell.textContent = b;
+            row.appendChild(bandCell);
+            this.freqTable[b].forEach((mhz, idx) => {
+                const td = document.createElement('td');
+                td.className = 'cell';
+                td.dataset.band = b;
+                td.dataset.channel = String(idx + 1);
+                td.textContent = `${mhz}M`;
+                row.appendChild(td);
+            });
+            tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+
+        // Clear and add
+        container.innerHTML = '';
+        container.appendChild(table);
     }
 
     populateChannelOptions() {
@@ -463,6 +513,17 @@ class FPVInterface {
             this.updateVtxUI(status.vtx);
         }
 
+        // Update scan status label for video scan
+        if (status.vtx_scan && typeof status.vtx_scan.in_progress === 'boolean') {
+            if (status.vtx_scan.in_progress) {
+                this.scanStatus.textContent = 'Video scanning...';
+                this.scanStatus.classList.add('active');
+            } else if (this.scanStatus.textContent === 'Video scanning...') {
+                this.scanStatus.textContent = 'Video scan done';
+                this.scanStatus.classList.remove('active');
+            }
+        }
+
         // Обновляем состояние кнопок и статус
         const mode = status.mode || 'manual';
         
@@ -511,6 +572,23 @@ class FPVInterface {
         }
     }
 
+    async startVideoScan() {
+        try {
+            // Clear any highlight
+            const container = document.getElementById('vtxGrid');
+            if (container) {
+                container.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+            }
+            const resp = await fetch(`${this.API_BASE}/vtx-scan`, { method: 'POST' });
+            const data = await resp.json();
+            if (!data.success) throw new Error('Failed to start VTX scan');
+            this.scanStatus.textContent = 'Video scanning...';
+            this.scanStatus.classList.add('active');
+        } catch (e) {
+            console.error('Video scan start error:', e);
+        }
+    }
+
     updateVtxUI(vtx) {
         const mhz = vtx.frequency_mhz || vtx.frequency || null;
         const band = vtx.band || '-';
@@ -527,6 +605,17 @@ class FPVInterface {
                 this.channelSelect.value = String(ch);
             }
         }
+
+        // Highlight active cell in the grid to reflect current active frequency
+        try {
+            const container = document.getElementById('vtxGrid');
+            if (container && band && ch) {
+                container.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+                const sel = `.cell[data-band="${band}"][data-channel="${String(ch)}"]`;
+                const cur = container.querySelector(sel);
+                if (cur) cur.classList.add('active');
+            }
+        } catch (e) {}
     }
 
     startVtxEditing() {

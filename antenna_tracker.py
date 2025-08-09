@@ -364,6 +364,12 @@ class AntennaTracker:
             self.last_status["vtx"] = self.vtx_service.get_status()
         except Exception as _:
             pass
+
+        # Добавляем статус VTX-сканирования
+        try:
+            self.last_status["vtx_scan"] = self.get_vtx_scan_status()
+        except Exception:
+            pass
     
     def process_command(self, command: str, params: dict = None) -> bool:
         """Обрабатывает команду"""
@@ -783,7 +789,7 @@ class AntennaTracker:
         print("Сервис остановлен")
 
     # ================= VTX SCAN =================
-    def start_vtx_scan(self, settle_ms: int = 200):
+    def start_vtx_scan(self, settle_ms: int = 700):
         """Старт сканирования по всем частотам VTX (не блокирующий)."""
         with self.vtx_scan_lock:
             if self.vtx_scan_in_progress:
@@ -794,6 +800,8 @@ class AntennaTracker:
             self.vtx_scan_best = { 'band': None, 'channel': None, 'rssi': None }
 
         def _worker():
+            # Гарантируем минимум 700 мс на стабилизацию картинки
+            min_settle_ms = 700 if settle_ms is None else max(700, int(settle_ms))
             try:
                 order = ['A','B','E','F','R','L']
                 for band in order:
@@ -811,8 +819,8 @@ class AntennaTracker:
                                 self.vtx_scan_in_progress = False
                             return
 
-                        # Ждём стабилизации приёмника
-                        time.sleep(settle_ms / 1000.0)
+                        # Ждём стабилизации приёмника/картинки
+                        time.sleep(min_settle_ms / 1000.0)
 
                         # Читаем RSSI (сумма A+B)
                         left, right = self.read_rssi()
@@ -1031,6 +1039,23 @@ def vtx_endpoint():
         return jsonify({"success": True, "vtx": tracker.vtx_service.get_status()})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/vtx-scan', methods=['POST'])
+def vtx_scan_start():
+    """Запуск сканирования по всем частотам"""
+    if not tracker:
+        return jsonify({"success": False, "error": "Tracker not initialized"}), 500
+    started = tracker.start_vtx_scan()
+    return jsonify({"success": started})
+
+
+@app.route('/vtx-scan/status', methods=['GET'])
+def vtx_scan_status():
+    if not tracker:
+        return jsonify({"success": False, "error": "Tracker not initialized"}), 500
+    status = tracker.get_vtx_scan_status()
+    return jsonify({"success": True, **status})
 
 
 # ============= ТОЧКА ВХОДА =============
