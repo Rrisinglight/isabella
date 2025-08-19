@@ -104,21 +104,22 @@ body {
 }
 
 .video-controls .auto-btn {
-    border-color: #00ff88;
-    color: #00ff88;
+    border-color: #888;
+    color: #888;
     padding: 0.75rem; /* Match other video buttons */
     border-radius: 50%; /* Match other video buttons */
 }
 
 .video-controls .auto-btn:hover {
-    background: rgba(0, 255, 136, 0.3);
-    box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+    background: rgba(224, 224, 224, 0.2);
+    box-shadow: 0 0 15px rgba(224, 224, 224, 0.2);
 }
 
 .video-controls .auto-btn.active {
     background: rgba(0, 255, 136, 0.4);
     box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
     color: #fff;
+    border-color: #00ff88;
 }
 
 /* On-video manual controls */
@@ -172,19 +173,20 @@ body {
 }
 
 .control-btn.auto-btn {
-    border-color: #00ff88;
-    color: #00ff88;
+    border-color: #888;
+    color: #888;
 }
 
 .control-btn.auto-btn:hover {
-    background: rgba(0, 255, 136, 0.3);
-    box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+    background: rgba(224, 224, 224, 0.2);
+    box-shadow: 0 0 15px rgba(224, 224, 224, 0.2);
 }
 
 .control-btn.auto-btn.active {
     background: rgba(0, 255, 136, 0.4);
     box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
     color: #fff;
+    border-color: #00ff88;
 }
 
 .scan-btn {

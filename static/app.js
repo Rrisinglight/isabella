@@ -257,7 +257,7 @@ class FPVInterface {
                 td.className = 'cell';
                 td.dataset.band = b;
                 td.dataset.channel = String(idx + 1);
-                td.textContent = `${mhz}M`;
+                td.textContent = `${mhz}`;
                 row.appendChild(td);
             });
             tbody.appendChild(row);
