@@ -19,3 +19,4 @@ numpy
 spidev
 pigpio
 gpiozero
+#RPi.GPIO

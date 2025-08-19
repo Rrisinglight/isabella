@@ -49,7 +49,7 @@ class Mode(Enum):
 @dataclass
 class ServoConfig:
     """Конфигурация сервопривода"""
-    port: str = '/dev/servo'
+    port: str = '/dev/ttyUSB0'
     baudrate: int = 115200
     id: int = 1
     center_pos: int = 2047
@@ -74,7 +74,7 @@ class ADCConfig:
     address: int = 0x48
     bus: int = 1
     gain: Optional[int] = None  # Будет установлен в init
-    left_channel: int = 1   # ADC канал для левой антенны
+    left_channel: int = 3   # ADC канал для левой антенны
     right_channel: int = 0  # ADC канал для правой антенны
 
 
@@ -196,7 +196,7 @@ class AntennaTracker:
             self.ads.setGain(self.adc_config.gain)
             print(f"✓ АЦП подключен: адрес 0x{self.adc_config.address:02X}")
 
-            # VTX инициализируется лениво в сервисе
+            #VTX инициализируется лениво в сервисе
             
         except Exception as e:
             print(f"✗ ОШИБКА инициализации оборудования: {e}")

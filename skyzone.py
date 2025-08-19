@@ -4,7 +4,7 @@ import RPi.GPIO as GPIO
 import time
 
 class SkyzoneVTX:
-    def __init__(self, clk_pin=27, mosi_pin=17, cs_pin=22):
+    def __init__(self, clk_pin=17, mosi_pin=27, cs_pin=22):
         """
         Инициализация VTX Skyzone X
         
@@ -172,7 +172,7 @@ if __name__ == "__main__":
         #time.sleep(1)
         
         # Устанавливаем канал F4 (Fatshark канал 4 - 5800MHz)
-        vtx.set_channel('B', 1)
+        vtx.set_channel('A', 1)
         time.sleep(4)
         
         # Переключаемся обратно в режим Mix
