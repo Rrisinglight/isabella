@@ -288,23 +288,28 @@ body {
     text-align: center;
 }
 
+.frequency-display .section-title { text-align: left; margin: 0; }
+
+.frequency-right { display: flex; align-items: baseline; gap: 0.75rem; }
+
 .frequency-text {
-    font-size: 2rem;
+    font-size: 1.6rem;
     font-weight: 700;
     color: #00aaff;
-    margin: 0.5rem 0;
+    margin: 0; /* align with header baseline */
 }
 
 .frequency-unit {
-    font-size: 1.25rem;
+    font-size: 1rem;
 }
 
 .frequency-details {
-    display: flex;
-    justify-content: center;
-    gap: 1rem;
-    font-size: 0.875rem;
+    display: inline-flex;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    font-size: 0.9rem;
     color: #888;
+    margin: 0; /* stay on same line */
 }
 
 /* Frequency controls */

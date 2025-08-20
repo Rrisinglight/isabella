@@ -148,10 +148,12 @@
 
         <!-- Frequency Info -->
         <div class="frequency-display liquid-glass">
-            <h3 class="section-title neon-text">Current Channel</h3>
-            <p class="frequency-text"><span id="currentFreq">-</span> <span class="frequency-unit">MHz</span></p>
-            <div class="frequency-details">
-                <span id="currentBandChannel">Band: - / CH: -</span>
+            <div class="scan-header">
+                <h3 class="section-title neon-text">Current Channel</h3>
+                <div class="frequency-right">
+                    <p class="frequency-text"><span id="currentFreq">-</span> <span class="frequency-unit">MHz</span></p>
+                    <div class="frequency-details"><span id="currentBandChannel">Band: - / CH: -</span></div>
+                </div>
             </div>
 
             <!-- Controls -->
@@ -173,7 +175,14 @@
                     <span class="material-icons">settings_input_antenna</span>
                     <span>Set</span>
                 </button>
+                <button id="videoScanBtn" class="scan-btn" type="button">
+                    <span class="material-icons">pageview</span>
+                    <span>Video scan</span>
+                </button>
             </div>
+
+            <!-- VTX frequency grid moved here -->
+            <div id="vtxGrid" class="vtx-grid"></div>
         </div>
 
         <!-- Angle Scan -->
@@ -185,18 +194,12 @@
                         <span class="material-icons">tune</span>
                         <span>Calibrate</span>
                     </button>
-                    <button id="videoScanBtn" class="scan-btn" type="button">
-                        <span class="material-icons">pageview</span>
-                        <span>Video scan</span>
-                    </button>
                     <button id="scanBtn" class="scan-btn" type="button">
                         <span class="material-icons">search</span>
                         <span>Start Scan</span>
                     </button>
                 </div>
             </div>
-            <!-- Compact frequency grid for video scan (placed above chart) -->
-            <div id="vtxGrid" class="vtx-grid"></div>
             <div class="scan-chart">
                 <canvas id="scanChart"></canvas>
             </div>

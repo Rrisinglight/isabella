@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта управления антенной</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        
+        .control-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            min-width: 250px;
+        }
+        
+        .control-panel h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .info-item {
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .info-label {
+            font-weight: bold;
+            color: #555;
+        }
+        
+        .info-value {
+            color: #0078A8;
+        }
+        
+        button {
+            background-color: #0078A8;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px 0;
+            width: 100%;
+        }
+        
+        button:hover {
+            background-color: #005580;
+        }
+        
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .angle-input {
+            width: 100%;
+            padding: 5px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        
+        .status.ready {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status.waiting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .legend {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+        
+        .legend-color {
+            width: 30px;
+            height: 3px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="control-panel">
+        <h3>🛰️ Управление антенной</h3>
+        
+        <div class="status waiting" id="status">
+            Кликните на карту для установки позиции
+        </div>
+        
+        <div class="info-item">
+            <span class="info-label">Позиция:</span>
+            <span class="info-value" id="position">Не установлена</span>
+        </div>
+        
+        <div class="info-item">
+            <span class="info-label">Базовое направление:</span>
+            <span class="info-value" id="base-direction">Не установлено</span>
+        </div>
+        
+        <div class="info-item">
+            <span class="info-label">Текущий угол:</span>
+            <span class="info-value" id="current-angle">73.0°</span>
+        </div>
+        
+        <div class="info-item">
+            <span class="info-label">Абсолютное направление:</span>
+            <span class="info-value" id="absolute-direction">-</span>
+        </div>
+        
+        <div style="margin-top: 15px;">
+            <label for="angle-input" style="font-size: 12px;">Установить угол (0-146°):</label>
+            <input type="number" id="angle-input" class="angle-input" 
+                   min="0" max="146" value="73" step="0.1">
+            <button onclick="setAngle()">Установить угол</button>
+        </div>
+        
+        <button onclick="startSimulation()" id="sim-btn">Запустить симуляцию</button>
+        <button onclick="resetAntenna()">Сбросить</button>
+        
+        <div class="legend">
+            <div class="info-label">Легенда:</div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff0000;"></div>
+                <span>Текущее направление</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff9999;"></div>
+                <span>Границы обзора</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgba(255, 0, 0, 0.1);"></div>
+                <span>Зона обзора</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='map.js') }}"></script>
+</body>
+</html>

@@ -130,7 +130,7 @@ class AntennaTracker:
         
         # Таймер для авторежима
         self.last_auto_move_time = 0
-        self.auto_move_cooldown = 0.2  # Минимальный интервал между движениями
+        self.auto_move_cooldown = 0.1 # Минимальный интервал между движениями
         
         print("=== Antenna Tracker инициализирован ===")
         self._print_servo_info()
@@ -283,10 +283,7 @@ class AntennaTracker:
                    acc: Optional[int] = None) -> bool:
         """Перемещает сервопривод в новую позицию"""
         # Ограничиваем позицию
-        new_position = max(
-            self.servo_config.left_limit,
-            min(self.servo_config.right_limit, new_position)
-        )
+        new_position = max(self.servo_config.left_limit, min(self.servo_config.right_limit, new_position))
         
         # Используем параметры по умолчанию если не заданы
         if speed is None:
