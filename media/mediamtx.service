@@ -1,0 +1,16 @@
+[Unit]
+Description=Mediamtx Service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=1
+Nice=-5
+WorkingDirectory=/opt/media
+ExecStart=/opt/media/mediamtx /opt/media/mediamtx.yml
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

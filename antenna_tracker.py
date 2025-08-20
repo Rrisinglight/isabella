@@ -31,6 +31,9 @@ from scservo_sdk import *
 # URL видеопотока
 ENCODER_URL = "http://192.168.1.106/isabella"
 
+# URL видеопотока
+CAMERA_URL = "rtsp://192.168.1.10:554/stream_1"
+
 # Порт для веб-сервера
 WEB_PORT = 5000
 
@@ -49,7 +52,7 @@ class Mode(Enum):
 @dataclass
 class ServoConfig:
     """Конфигурация сервопривода"""
-    port: str = '/dev/ttyUSB0'
+    port: str = '/dev/servo'
     baudrate: int = 115200
     id: int = 1
     center_pos: int = 2047
@@ -57,14 +60,14 @@ class ServoConfig:
     right_limit: int = 2700
     # Преобразование: (2700-1100) = 1600 единиц на ~146 градусов
     # 1 градус = ~11 единиц
-    step_degrees: int = 3  # Шаг в градусах для ручного режима
-    step_units: int = 33  # 3 градуса * 11 единиц
+    step_degrees: int = 1  # Шаг в градусах для ручного режима
+    step_units: int = 11  # 3 градуса * 11 единиц
     scan_step_units: int = 33  # Шаг сканирования
     
     # Параметры движения
-    default_speed: int = 1500  # Скорость по умолчанию
+    default_speed: int = 500  # Скорость по умолчанию
     default_acc: int = 50  # Ускорение по умолчанию
-    auto_speed: int = 800  # Скорость для авторежима (плавнее)
+    auto_speed: int = 500  # Скорость для авторежима (плавнее)
     auto_acc: int = 30  # Ускорение для авторежима
 
 
@@ -99,14 +102,14 @@ class AntennaTracker:
         self.vtx_service = VtxService()
         
         # Калибровка
-        self.rssi_offset = 0  # Смещение для выравнивания каналов
+        self.rssi_offset =-600  # Смещение для выравнивания каналов
         self.noise_floor_left = 0  # Уровень шума левого канала
         self.noise_floor_right = 0  # Уровень шума правого канала
         self.rssi_max_left = 4000  # Максимум левого канала
         self.rssi_max_right = 4000  # Максимум правого канала
         
         # Буферы для фильтрации
-        self.rssi_filter_size = 5
+        self.rssi_filter_size = 1
         self.left_rssi_buffer = deque(maxlen=self.rssi_filter_size)
         self.right_rssi_buffer = deque(maxlen=self.rssi_filter_size)
         
@@ -115,7 +118,7 @@ class AntennaTracker:
         self.auto_step_small = 11  # Малый шаг (1 градус) для точной подстройки
         self.auto_step_medium = 22  # Средний шаг (2 градуса)
         self.auto_step_large = 44  # Большой шаг (4 градуса) для быстрого наведения
-        self.auto_deadband = 5  # Мертвая зона, где движение не требуется
+        self.auto_deadband = 500  # Мертвая зона, где движение не требуется
         
         # Данные сканирования
         self.scan_data = []
