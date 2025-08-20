@@ -104,21 +104,21 @@ function drawAntennaLines() {
     const leftEnd = calculateEndpoint(baseLat, baseLng, leftBoundary, antennaState.rangeKm);
     const rightEnd = calculateEndpoint(baseLat, baseLng, rightBoundary, antennaState.rangeKm);
     
-    // Рисуем текущее направление (яркая красная линия)
+    // Рисуем текущее направление (яркая бирюзовая линия)
     currentDirectionLine = L.polyline(
         [[baseLat, baseLng], currentEnd],
-        {color: '#ff0000', weight: 3, opacity: 1}
+        {color: '#00aaff', weight: 3, opacity: 1}
     ).addTo(map);
     
-    // Рисуем границы (полупрозрачные красные линии)
+    // Рисуем границы (полупрозрачные бирюзовые линии)
     leftBoundaryLine = L.polyline(
         [[baseLat, baseLng], leftEnd],
-        {color: '#ff9999', weight: 2, opacity: 0.7, dashArray: '5, 10'}
+        {color: '#66d9ff', weight: 2, opacity: 0.6, dashArray: '5, 10'}
     ).addTo(map);
     
     rightBoundaryLine = L.polyline(
         [[baseLat, baseLng], rightEnd],
-        {color: '#ff9999', weight: 2, opacity: 0.7, dashArray: '5, 10'}
+        {color: '#66d9ff', weight: 2, opacity: 0.6, dashArray: '5, 10'}
     ).addTo(map);
     
     // Создаём полигон зоны покрытия, учитывая возможный переход через 360°
@@ -142,16 +142,12 @@ function drawAntennaLines() {
     }
     
     coveragePolygon = L.polygon(polygonPoints, {
-        color: '#ff0000',
-        fillColor: '#ff0000',
-        fillOpacity: 0.1,
+        color: '#00aaff',
+        fillColor: '#00aaff',
+        fillOpacity: 0.12,
         weight: 1,
-        opacity: 0.3
+        opacity: 0.25
     }).addTo(map);
-    
-    // Обновляем информацию в панели
-    document.getElementById('absolute-direction').textContent = 
-        `${currentDirection.toFixed(1)}°`;
 }
 
 // Обработка кликов на карте
@@ -167,17 +163,11 @@ map.on('click', function(e) {
         baseMarker = L.marker([e.latlng.lat, e.latlng.lng], {
             icon: L.divIcon({
                 className: 'custom-div-icon',
-                html: '<div style="background-color: #ff0000; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+                html: '<div style="background-color: #00aaff; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.8);"></div>',
                 iconSize: [16, 16],
                 iconAnchor: [8, 8]
             })
         }).addTo(map);
-        
-        // Обновляем статус
-        document.getElementById('status').className = 'status waiting';
-        document.getElementById('status').textContent = 'Кликните ещё раз для установки направления';
-        document.getElementById('position').textContent = 
-            `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
         
         isSettingDirection = true;
         
@@ -209,11 +199,6 @@ map.on('click', function(e) {
             })
         });
         
-        // Обновляем UI
-        document.getElementById('status').className = 'status ready';
-        document.getElementById('status').textContent = 'Антенна активна';
-        document.getElementById('base-direction').textContent = `${bearing.toFixed(1)}°`;
-        
         // Рисуем линии
         drawAntennaLines();
         
@@ -229,7 +214,7 @@ map.on('mousemove', function(e) {
         
         tempLine = L.polyline(
             [antennaState.basePoint, [e.latlng.lat, e.latlng.lng]],
-            {color: '#0078A8', weight: 2, opacity: 0.5, dashArray: '5, 5'}
+            {color: '#00aaff', weight: 2, opacity: 0.5, dashArray: '5, 5'}
         ).addTo(map);
     }
 });
@@ -251,12 +236,6 @@ function startAutoUpdate() {
                 if (typeof state.range_km === 'number') {
                     antennaState.rangeKm = state.range_km;
                 }
-                // Обновляем UI
-                document.getElementById('current-angle').textContent = `${state.current_angle.toFixed(1)}°`;
-                document.getElementById('base-direction').textContent = `${state.base_direction.toFixed(1)}°`;
-                document.getElementById('position').textContent = `${state.base_point[0].toFixed(6)}, ${state.base_point[1].toFixed(6)}`;
-                document.getElementById('status').className = 'status ready';
-                document.getElementById('status').textContent = 'Антенна активна';
                 drawAntennaLines();
             }
         } catch (error) {
@@ -265,36 +244,7 @@ function startAutoUpdate() {
     }, 1000); // Обновление каждую секунду
 }
 
-// Функция установки угла
-async function setAngle() {
-    const angle = parseFloat(document.getElementById('angle-input').value);
-    
-    try {
-        const response = await fetch('/api/update_angle', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({angle: angle})
-        });
-        
-        const result = await response.json();
-        antennaState.currentAngle = result.angle;
-        document.getElementById('current-angle').textContent = `${result.angle.toFixed(1)}°`;
-        drawAntennaLines();
-    } catch (error) {
-        console.error('Ошибка установки угла:', error);
-    }
-}
-
-// Функция запуска симуляции
-async function startSimulation() {
-    try {
-        await fetch('/api/simulate', {method: 'POST'});
-        document.getElementById('sim-btn').disabled = true;
-        document.getElementById('sim-btn').textContent = 'Симуляция запущена';
-    } catch (error) {
-        console.error('Ошибка запуска симуляции:', error);
-    }
-}
+// Симуляция и ручная установка угла не требуются
 
 // Функция сброса
 function resetAntenna() {
@@ -324,16 +274,6 @@ function resetAntenna() {
         updateInterval = null;
     }
     
-    // Обновляем UI
-    document.getElementById('status').className = 'status waiting';
-    document.getElementById('status').textContent = 'Кликните на карту для установки позиции';
-    document.getElementById('position').textContent = 'Не установлена';
-    document.getElementById('base-direction').textContent = 'Не установлено';
-    document.getElementById('current-angle').textContent = '73.0°';
-    document.getElementById('absolute-direction').textContent = '-';
-    document.getElementById('angle-input').value = 73;
-    document.getElementById('sim-btn').disabled = false;
-    document.getElementById('sim-btn').textContent = 'Запустить симуляцию';
 }
 
 // Инициализация при загрузке
@@ -356,17 +296,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 baseMarker = L.marker(antennaState.basePoint, {
                     icon: L.divIcon({
                         className: 'custom-div-icon',
-                        html: '<div style="background-color: #ff0000; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+                        html: '<div style="background-color: #00aaff; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.8);"></div>',
                         iconSize: [16, 16],
                         iconAnchor: [8, 8]
                     })
                 }).addTo(map);
-                // Обновляем UI
-                document.getElementById('status').className = 'status ready';
-                document.getElementById('status').textContent = 'Антенна активна';
-                document.getElementById('position').textContent = `${antennaState.basePoint[0].toFixed(6)}, ${antennaState.basePoint[1].toFixed(6)}`;
-                document.getElementById('base-direction').textContent = `${antennaState.baseDirection.toFixed(1)}°`;
-                document.getElementById('current-angle').textContent = `${antennaState.currentAngle.toFixed(1)}°`;
                 // Рисуем и запускаем автообновление
                 drawAntennaLines();
                 startAutoUpdate();

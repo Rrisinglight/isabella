@@ -732,7 +732,8 @@ pathDefaults:
 paths:
   mystream:
     # URL вашего RTSP-потока
-    source: rtsp://192.168.1.106:554/stream1
+    source: rtsp://192.168.1.10:554/stream_1 #rtsp://192.168.1.106:554/stream1
+  # source: rtsp://192.168.1.10:554/stream_1 camera tracker
   # example:
   # my_camera:
   #   source: rtsp://my_camera
